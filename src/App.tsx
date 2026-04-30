@@ -13,6 +13,7 @@ import {
   DragStartEvent,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import "./App.css";
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
@@ -75,6 +76,16 @@ interface PlayableItem {
   duration_ms: number | null;
   fade_duration_ms: number | null;
 }
+
+// ─── Tipos de linha achatada (playlist virtualizer) ───────────────────────────
+
+type FlatRowKind =
+  | { kind: 'pl-header'; plKey: string; label: string }
+  | { kind: 'block-header'; plKey: string; blockKey: string; blockType: string }
+  | { kind: 'slot-before'; plKey: string; blockKey: string; musicKey: string }
+  | { kind: 'music'; plKey: string; blockKey: string; musicKey: string; music: Music }
+  | { kind: 'slot-end'; plKey: string; blockKey: string }
+  | { kind: 'block-empty'; plKey: string; blockKey: string };
 
 // ─── Utilitários ─────────────────────────────────────────────────────────────
 
@@ -184,7 +195,11 @@ function DraggableMidiaItem({
       ref={setNodeRef}
       style={style}
       id={`midia-item-${idx}`}
-      className={`midia${isSelected ? " selected" : ""}${isCueing ? " cueing" : ""}`}
+      className={[
+        "flex items-center gap-2.5 px-3 h-9 cursor-pointer border-b border-white/5 select-none transition-colors duration-150",
+        isSelected ? "bg-blue-500/15 border-l-2 border-l-blue-500" : "hover:bg-white/5",
+        isCueing ? "bg-violet-500/12 border-l-2 border-l-violet-400" : "",
+      ].join(" ")}
       title={file.path}
       onClick={onSelect}
       onDoubleClick={onDoubleClick}
@@ -192,15 +207,18 @@ function DraggableMidiaItem({
       {...attributes}
     >
       <button
-        className={`cue-play-btn${isCuePlaying ? " cue-playing" : ""}`}
+        className={[
+          "w-[26px] h-[26px] rounded-full flex items-center justify-center text-xs text-white/90 shrink-0 transition-all duration-200",
+          isCuePlaying ? "bg-violet-700 animate-pulse-cue" : "bg-white/10 hover:bg-violet-400 hover:scale-110",
+        ].join(" ")}
         title={isCuePlaying ? "Parar CUE" : "Preview CUE"}
         onClick={onCue}
         onPointerDown={e => e.stopPropagation()}
       >
         {isCuePlaying ? "⏸" : "▶"}
       </button>
-      <span className="midia-name">{file.name.replace(/\.[^/.]+$/, "")}</span>
-      <span className="midia-ext">{file.name.split(".").pop()?.toUpperCase()}</span>
+      <span className="flex-1 text-[0.82rem] text-white/90 whitespace-nowrap overflow-hidden text-ellipsis">{file.name.replace(/\.[^/.]+$/, "")}</span>
+      <span className="text-[0.62rem] bg-white/10 text-slate-400 px-1.5 py-0.5 rounded font-semibold shrink-0">{file.name.split(".").pop()?.toUpperCase()}</span>
     </div>
   );
 }
@@ -246,6 +264,15 @@ function App() {
   const filteredFiles = dirFiles.filter(f =>
     f.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const parentRef = useRef<HTMLDivElement>(null);
+
+  const rowVirtualizer = useVirtualizer({
+    count: filteredFiles.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 36,
+    overscan: 10,
+  });
 
   const loadDirectories = useCallback(async (paths: string[]) => {
     setDirLoading(true);
@@ -358,8 +385,8 @@ function App() {
       setDirectoryValue(prev => {
         const exists = finalOptions.find(o => o.value === prev);
         if (exists) {
-            setDirectoryKind(exists.kind);
-            return prev;
+          setDirectoryKind(exists.kind);
+          return prev;
         }
         setDirectoryKind(finalOptions[0].kind);
         return sentinelValue;
@@ -376,7 +403,7 @@ function App() {
       setDirFiles([]);
       return;
     }
-    
+
     if (directoryValue === "#st") {
       setDirFiles([]);
       return;
@@ -387,7 +414,7 @@ function App() {
         .filter(o => o.kind === 'sync' || o.kind === 'manual')
         .map(o => o.value)
         .filter(v => v !== "0" && v !== "-1" && v !== "#st");
-      
+
       loadDirectories(paths);
       return;
     }
@@ -395,7 +422,7 @@ function App() {
     if (directoryKind === 'sync' || directoryKind === 'manual') {
       loadDirectories([directoryValue]);
     } else {
-       setDirFiles([]);
+      setDirFiles([]);
     }
   }, [directoryValue, directoryKind, mediaCategory, loadDirectories, directoryOptions]);
 
@@ -550,129 +577,220 @@ function App() {
     }
   };
 
+  // ─── Playlist virtualizer ────────────────────────────────────────────────────
+
+  const playlistParentRef = useRef<HTMLDivElement>(null);
+
+  // Achatar a estrutura aninhada em um array flat de linhas
+  const flatRows = (() => {
+    if (!data) return [] as FlatRowKind[];
+    const rows: FlatRowKind[] = [];
+    for (const [plKey, pl] of Object.entries(data.playlists)) {
+      rows.push({ kind: 'pl-header', plKey, label: pl.program });
+      for (const [blockKey, block] of Object.entries(pl.blocks)) {
+        rows.push({ kind: 'block-header', plKey, blockKey, blockType: block.type });
+        const musicEntries = Object.entries(block.musics ?? {});
+        if (musicEntries.length === 0) {
+          rows.push({ kind: 'block-empty', plKey, blockKey });
+        } else {
+          for (const [musicKey, music] of musicEntries) {
+            rows.push({ kind: 'slot-before', plKey, blockKey, musicKey });
+            rows.push({ kind: 'music', plKey, blockKey, musicKey, music });
+          }
+          rows.push({ kind: 'slot-end', plKey, blockKey });
+        }
+      }
+    }
+    return rows;
+  })();
+
+  const ROW_HEIGHTS: Record<FlatRowKind['kind'], number> = {
+    'pl-header': 52,
+    'block-header': 44,
+    'slot-before': 6,
+    'music': 90,
+    'slot-end': 6,
+    'block-empty': 56,
+  };
+
+  const playlistVirtualizer = useVirtualizer({
+    count: flatRows.length,
+    getScrollElement: () => playlistParentRef.current,
+    estimateSize: (i) => ROW_HEIGHTS[flatRows[i]?.kind] ?? 90,
+    overscan: 5,
+  });
+
   // ─── Render ───────────────────────────────────────────────────────────────────
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
-      <div className="app-container">
+      <div className="grid grid-cols-2 gap-8 p-8 h-screen max-w-[1600px] mx-auto">
 
         {/* ══ COLUNA ESQUERDA (playlist) ══ */}
-        <div className={`left-column glass-panel scrollable-y${isOverPlaylist ? " drop-over" : ""}`}>
-          {loading && <p className="loading-state">Carregando lista...</p>}
-          {error && <div className="error-message">{error}</div>}
+        <div
+          ref={playlistParentRef}
+          className={[
+            "scrollable-y relative flex flex-col bg-[var(--glass-bg)] backdrop-blur-xl border rounded-2xl p-6 shadow-[0_4px_30px_rgba(0,0,0,0.1)] overflow-y-auto",
+            isOverPlaylist
+              ? "border-emerald-400/60 shadow-[0_0_0_2px_rgba(52,211,153,0.3),0_4px_30px_rgba(0,0,0,0.1)] bg-slate-800/85"
+              : "border-white/10",
+          ].join(" ")}
+        >
+          {loading && <p className="text-center p-8 text-slate-400">Carregando lista...</p>}
+          {error && <div className="text-center p-8 text-red-300">{error}</div>}
 
           {!loading && !error && data && (
-            <div className="playlist-list">
-              {Object.entries(data.playlists).map(([plKey, pl]) => (
-                <div key={plKey} className="playlist-section">
-                  <h2 className="playlist-title">{pl.program}</h2>
-                  <div className="blocks-list">
-                    {Object.entries(pl.blocks).map(([blockKey, block]) => {
-                      const musicEntries = Object.entries(block.musics ?? {});
-                      return (
-                        <div key={blockKey} className="block-item">
-                          <div className="block-header">
-                            <h3>Bloco {blockKey}</h3>
-                            <span className={`block-type type-${block.type}`}>{block.type}</span>
+            <div
+              style={{
+                height: `${playlistVirtualizer.getTotalSize()}px`,
+                width: '100%',
+                position: 'relative',
+              }}
+            >
+              {playlistVirtualizer.getVirtualItems().map((virtualRow) => {
+                const row = flatRows[virtualRow.index];
+                const style: React.CSSProperties = {
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  transform: `translateY(${virtualRow.start}px)`,
+                };
+
+                if (row.kind === 'pl-header') {
+                  return (
+                    <div key={virtualRow.key} style={style}>
+                      <h2 className="playlist-title">{row.label}</h2>
+                    </div>
+                  );
+                }
+
+                if (row.kind === 'block-header') {
+                  return (
+                    <div key={virtualRow.key} style={style} className="px-1">
+                      <div className="flex justify-between items-center mb-3 border-b border-white/5 pb-2">
+                        <h3 className="text-base text-slate-400">Bloco {row.blockKey}</h3>
+                        <span className={`text-[0.7rem] uppercase tracking-[0.05em] px-2 py-1 rounded font-semibold block-type type-${row.blockType}`}>{row.blockType}</span>
+                      </div>
+                    </div>
+                  );
+                }
+
+                if (row.kind === 'slot-before') {
+                  return (
+                    <div key={virtualRow.key} style={style}>
+                      <DroppableSlot id={`slot-before-${row.plKey}|${row.blockKey}|${row.musicKey}`} />
+                    </div>
+                  );
+                }
+
+                if (row.kind === 'slot-end') {
+                  return (
+                    <div key={virtualRow.key} style={style}>
+                      <DroppableSlot id={`slot-end-${row.plKey}|${row.blockKey}`} />
+                    </div>
+                  );
+                }
+
+                if (row.kind === 'block-empty') {
+                  return (
+                    <div key={virtualRow.key} style={style}>
+                      <div className="block-empty-drop relative">
+                        <DroppableSlot id={`slot-end-${row.plKey}|${row.blockKey}`} />
+                        <p className="absolute inset-0 flex items-center justify-center pointer-events-none m-0 text-[0.8rem] text-slate-400 italic">*(Sem mídias — arraste aqui)*</p>
+                      </div>
+                    </div>
+                  );
+                }
+
+                if (row.kind === 'music') {
+                  const { plKey, blockKey, musicKey, music } = row;
+                  const uniqueId = `${plKey}-${blockKey}-${musicKey}`;
+                  const title = music.text || `Mídia: ${music.type}`;
+                  const isCurrentlyPlaying = playingId === uniqueId;
+                  const isBackgroundPlaying = backgroundIds.includes(uniqueId);
+
+                  const itemClass = [
+                    "flex flex-col px-3 py-2 bg-white/[0.02] rounded-md transition-all duration-200 border",
+                    isCurrentlyPlaying ? "bg-blue-500/10 border-blue-500/30" :
+                      isBackgroundPlaying ? "bg-violet-500/10 border-violet-500/30" :
+                        "border-transparent hover:bg-white/5",
+                  ].join(" ");
+
+                  let displayDuration = 0;
+                  if (music.extra?.mix?.duration_total) displayDuration = music.extra.mix.duration_total / 1000;
+                  else if (music.extra?.mix?.duration_real) displayDuration = music.extra.mix.duration_real / 1000;
+                  else if (music.duration) displayDuration = music.duration;
+                  else if (isCurrentlyPlaying) displayDuration = duration;
+
+                  let itemCurrentTime = 0;
+                  if (isCurrentlyPlaying) itemCurrentTime = currentTime;
+                  else if (isBackgroundPlaying) itemCurrentTime = (backgroundPositions[uniqueId] || 0) / 1000;
+
+                  const prog = displayDuration ? (itemCurrentTime / displayDuration) * 100 : 0;
+                  let mixEnd: number | null = null;
+                  if (music.extra?.mix?.mix_end && displayDuration)
+                    mixEnd = (music.extra.mix.mix_end / 1000 / displayDuration) * 100;
+
+                  let bgStyle = `linear-gradient(to right, var(--accent-color) ${prog}%, rgba(255,255,255,0.1) ${prog}%)`;
+                  if (mixEnd !== null) {
+                    bgStyle = prog < mixEnd
+                      ? `linear-gradient(to right, var(--accent-color) ${prog}%, rgba(255,255,255,0.1) ${prog}%, rgba(255,255,255,0.1) ${mixEnd}%, rgba(255,100,50,0.4) ${mixEnd}%)`
+                      : `linear-gradient(to right, var(--accent-color) ${prog}%, rgba(255,100,50,0.4) ${prog}%)`;
+                  }
+
+                  return (
+                    <div key={virtualRow.key} style={style}>
+                      <div className={itemClass}>
+                        <div className="flex justify-between items-center w-full">
+                          <div className="flex items-center gap-3 flex-1 overflow-hidden">
+                            {music.path && (
+                              <button
+                                className={[
+                                  "w-7 h-7 rounded-full flex items-center justify-center text-white shrink-0 p-0 text-[0.8rem] transition-all duration-200",
+                                  isCurrentlyPlaying && isPlaying
+                                    ? "bg-red-500 animate-pulse-btn"
+                                    : "bg-white/10 hover:bg-blue-500 hover:scale-110",
+                                ].join(" ")}
+                                onClick={() => togglePlay(uniqueId)}
+                                title={isCurrentlyPlaying && isPlaying ? "Pausar" : "Tocar"}
+                              >
+                                {isCurrentlyPlaying && isPlaying ? "⏸" : "▶"}
+                              </button>
+                            )}
+                            <span className="text-[0.9rem] text-white/90 whitespace-nowrap overflow-hidden text-ellipsis pr-4">{title}</span>
                           </div>
-
-                          {musicEntries.length > 0 ? (
-                            <ul className="music-list">
-                              {musicEntries.map(([musicKey, music]) => {
-                                const uniqueId = `${plKey}-${blockKey}-${musicKey}`;
-                                const title = music.text || `Mídia: ${music.type}`;
-                                const isCurrentlyPlaying = playingId === uniqueId;
-                                const isBackgroundPlaying = backgroundIds.includes(uniqueId);
-
-                                let itemClasses = "music-item";
-                                if (isCurrentlyPlaying) itemClasses += " is-playing";
-                                if (isBackgroundPlaying) itemClasses += " is-background";
-
-                                let displayDuration = 0;
-                                if (music.extra?.mix?.duration_total) displayDuration = music.extra.mix.duration_total / 1000;
-                                else if (music.extra?.mix?.duration_real) displayDuration = music.extra.mix.duration_real / 1000;
-                                else if (music.duration) displayDuration = music.duration;
-                                else if (isCurrentlyPlaying) displayDuration = duration;
-
-                                let itemCurrentTime = 0;
-                                if (isCurrentlyPlaying) itemCurrentTime = currentTime;
-                                else if (isBackgroundPlaying) itemCurrentTime = (backgroundPositions[uniqueId] || 0) / 1000;
-
-                                const prog = displayDuration ? (itemCurrentTime / displayDuration) * 100 : 0;
-                                let mixEnd: number | null = null;
-                                if (music.extra?.mix?.mix_end && displayDuration)
-                                  mixEnd = (music.extra.mix.mix_end / 1000 / displayDuration) * 100;
-
-                                let bgStyle = `linear-gradient(to right, var(--accent-color) ${prog}%, rgba(255,255,255,0.1) ${prog}%)`;
-                                if (mixEnd !== null) {
-                                  bgStyle = prog < mixEnd
-                                    ? `linear-gradient(to right, var(--accent-color) ${prog}%, rgba(255,255,255,0.1) ${prog}%, rgba(255,255,255,0.1) ${mixEnd}%, rgba(255,100,50,0.4) ${mixEnd}%)`
-                                    : `linear-gradient(to right, var(--accent-color) ${prog}%, rgba(255,100,50,0.4) ${prog}%)`;
-                                }
-
-                                return (
-                                  <li key={musicKey}>
-                                    {/* Slot de drop ANTES deste item */}
-                                    <DroppableSlot id={`slot-before-${plKey}|${blockKey}|${musicKey}`} />
-
-                                    <div className={itemClasses}>
-                                      <div className="music-item-content">
-                                        <div className="music-left-info">
-                                          {music.path && (
-                                            <button
-                                              className={`play-btn${isCurrentlyPlaying && isPlaying ? " playing" : ""}`}
-                                              onClick={() => togglePlay(uniqueId)}
-                                              title={isCurrentlyPlaying && isPlaying ? "Pausar" : "Tocar"}
-                                            >
-                                              {isCurrentlyPlaying && isPlaying ? "⏸" : "▶"}
-                                            </button>
-                                          )}
-                                          <span className="music-title">{title}</span>
-                                        </div>
-                                        {music.type && <span className="music-type-badge">{music.type}</span>}
-                                      </div>
-                                      <div className="progress-container">
-                                        <span className="time-text">{formatTime(itemCurrentTime)}</span>
-                                        <input
-                                          type="range" className="progress-bar"
-                                          min="0" max={displayDuration || 0} step="0.001"
-                                          value={itemCurrentTime} onChange={handleSeek}
-                                          disabled={!isCurrentlyPlaying} style={{ background: bgStyle }}
-                                        />
-                                        <span className="time-text">{formatTime(displayDuration)}</span>
-                                      </div>
-                                    </div>
-                                  </li>
-                                );
-                              })}
-
-                              {/* Slot de drop no FINAL do bloco */}
-                              <li><DroppableSlot id={`slot-end-${plKey}|${blockKey}`} /></li>
-                            </ul>
-                          ) : (
-                            <div className="block-empty-drop">
-                              <DroppableSlot id={`slot-end-${plKey}|${blockKey}`} />
-                              <p className="no-music">*(Sem mídias — arraste aqui)*</p>
-                            </div>
-                          )}
+                          {music.type && <span className="text-[0.65rem] bg-white/10 px-1.5 py-0.5 rounded text-slate-400 whitespace-nowrap">{music.type}</span>}
                         </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
+                        <div className="flex items-center gap-3 w-full mt-3 px-2">
+                          <span className="text-[0.75rem] text-slate-400 tabular-nums min-w-[35px]">{formatTime(itemCurrentTime)}</span>
+                          <input
+                            type="range" className="progress-bar"
+                            min="0" max={displayDuration || 0} step="0.001"
+                            value={itemCurrentTime} onChange={handleSeek}
+                            disabled={!isCurrentlyPlaying} style={{ background: bgStyle }}
+                          />
+                          <span className="text-[0.75rem] text-slate-400 tabular-nums min-w-[35px]">{formatTime(displayDuration)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                return null;
+              })}
             </div>
           )}
         </div>
 
         {/* ══ COLUNA DIREITA (#midias) ══ */}
-        <div id="midias" className="right-column glass-panel">
-          <div className="midias-header">
-            <h2 className="midias-title">📂 Biblioteca de Mídias</h2>
-            <div className="midias-dir-row selects-row">
-              <select 
-                className="midias-select" 
-                value={mediaCategory} 
+        <div id="midias" className="flex flex-col bg-[var(--glass-bg)] backdrop-blur-xl border border-white/10 rounded-2xl shadow-[0_4px_30px_rgba(0,0,0,0.1)] overflow-hidden p-0">
+          <div className="px-5 pt-5 pb-3 border-b border-white/10 flex flex-col gap-2.5 shrink-0">
+            <h2 className="text-[1rem] font-semibold text-slate-400 tracking-[0.04em] uppercase">📂 Biblioteca de Mídias</h2>
+            <div className="flex gap-2">
+              <select
+                className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-white/90 text-[0.8rem] outline-none transition-colors focus:border-blue-500 [&>option]:bg-slate-900 [&>option]:text-white"
+                value={mediaCategory}
                 onChange={(e) => setMediaCategory(e.target.value as MediaCategory)}
               >
                 <option value="unset">Selecione o tipo</option>
@@ -681,8 +799,8 @@ function App() {
                 <option value="others">Comerciais / Outros</option>
               </select>
 
-              <select 
-                className="midias-select" 
+              <select
+                className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-white/90 text-[0.8rem] outline-none transition-colors focus:border-blue-500 disabled:opacity-50 [&>option]:bg-slate-900 [&>option]:text-white"
                 value={directoryValue}
                 onChange={(e) => {
                   setDirectoryValue(e.target.value);
@@ -703,80 +821,104 @@ function App() {
               </select>
             </div>
 
-            {/* Painéis de filtro baseados nas regras do MD */}
-            {mediaCategory !== 'unset' && mediaCategory !== 'others' && (directoryKind === 'sync' || directoryKind === 'collection') && (
-              <div className="filters-panel" style={{ marginTop: '0.5rem', padding: '0.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                <em>(Painel de filtros: Nacionalidade, Estilo, Ano, etc. visível para {mediaCategory} / {directoryKind})</em>
-              </div>
-            )}
-
-            <div className="midias-search-row">
-              <span className="midias-search-icon">🔎</span>
-              <input id="buscaMidia" className="midias-search-input"
+            <div className="flex items-center gap-2 bg-white/[0.04] border border-white/10 rounded-lg px-3 py-1.5">
+              <span className="text-[0.85rem] opacity-70">🔎</span>
+              <input id="buscaMidia" className="flex-1 bg-transparent border-none outline-none text-white/90 text-[0.85rem] placeholder:text-slate-500"
                 placeholder="Buscar mídia..." value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)} />
               {searchQuery && (
-                <span className="midias-result-count">
+                <span className="text-[0.72rem] text-blue-400 font-semibold whitespace-nowrap">
                   {filteredFiles.length} resultado{filteredFiles.length !== 1 ? "s" : ""}
                 </span>
               )}
             </div>
           </div>
 
-          <div className="files">
-            {dirError && <div className="midias-error">⚠️ {dirError}</div>}
+          <div className="flex-1 overflow-hidden flex flex-col relative">
+            {dirError && <div className="m-3 px-3 py-2 bg-red-500/12 border border-red-500/30 rounded-lg text-red-300 text-[0.82rem]">⚠️ {dirError}</div>}
             {!dirLoading && dirFiles.length === 0 && !dirError && (
-              <div className="midias-empty">
-                <span className="midias-empty-icon">🎵</span>
+              <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-400 text-[0.88rem] text-center p-8">
+                <span className="text-[2.5rem] opacity-50">🎵</span>
                 <p>Selecione uma pasta e clique em 🔍 para carregar os arquivos.</p>
               </div>
             )}
             {dirLoading && (
-              <div className="midias-loading">
-                <div className="midias-spinner" />
-                <p>Lendo diretório via Rust...</p>
+              <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-400 text-[0.88rem]">
+                <div className="w-8 h-8 border-3 border-white/10 border-t-blue-500 rounded-full animate-spin-custom" />
+                <p>Lendo diretório...</p>
               </div>
             )}
             {!dirLoading && filteredFiles.length > 0 && (
-              <div className="list">
-                {filteredFiles.map((file, idx) => {
-                  const isSelected = selectedFile === file.path;
-                  const isCueing = cueFile === file.path;
-                  const isCuePlaying = isCueing && cuePlaying;
-                  return (
-                    <DraggableMidiaItem
-                      key={file.path} file={file} idx={idx}
-                      isSelected={isSelected} isCueing={isCueing} isCuePlaying={isCuePlaying}
-                      onSelect={() => {
-                        setSelectedFile(file.path);
-                        if (cueRef.current && !isCueing && cuePlaying) {
-                          cueRef.current.pause(); setCuePlaying(false);
-                        }
-                      }}
-                      onDoubleClick={() => console.log("[Playlist] Double-click:", file.path)}
-                      onCue={e => { e.stopPropagation(); toggleCue(file); }}
-                    />
-                  );
-                })}
+              <div className="list flex-1 overflow-y-auto relative" ref={parentRef}>
+                <div
+                  style={{
+                    height: `${rowVirtualizer.getTotalSize()}px`,
+                    width: '100%',
+                    position: 'relative',
+                  }}
+                >
+                  {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                    const file = filteredFiles[virtualRow.index];
+                    const isSelected = selectedFile === file.path;
+                    const isCueing = cueFile === file.path;
+                    const isCuePlaying = isCueing && cuePlaying;
+
+                    return (
+                      <div
+                        key={virtualRow.key}
+                        data-index={virtualRow.index}
+                        ref={rowVirtualizer.measureElement}
+                        style={{
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          width: '100%',
+                          transform: `translateY(${virtualRow.start}px)`,
+                        }}
+                      >
+                        <DraggableMidiaItem
+                          file={file}
+                          idx={virtualRow.index}
+                          isSelected={isSelected}
+                          isCueing={isCueing}
+                          isCuePlaying={isCuePlaying}
+                          onSelect={() => {
+                            setSelectedFile(file.path);
+                            if (cueRef.current && !isCueing && cuePlaying) {
+                              cueRef.current.pause();
+                              setCuePlaying(false);
+                            }
+                          }}
+                          onDoubleClick={() => console.log("[Playlist] Double-click:", file.path)}
+                          onCue={e => {
+                            e.stopPropagation();
+                            toggleCue(file);
+                          }}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </div>
 
           {cueFile && (
-            <div className="cue-player-bar">
-              <div className="cue-player-title">
-                <span className="cue-badge">CUE</span>
-                <span className="cue-player-name">
+            <div className="shrink-0 px-4 py-2.5 border-t border-white/10 bg-violet-500/15 flex flex-col gap-1.5">
+              <div className="flex items-center gap-2">
+                <span className="text-[0.6rem] font-bold tracking-[0.08em] bg-violet-700 text-white px-1.5 py-0.5 rounded shrink-0">CUE</span>
+                <span className="text-[0.8rem] text-violet-300 whitespace-nowrap overflow-hidden text-ellipsis">
                   {cueFile.split(/[\\\/]/).pop()?.replace(/\.[^/.]+$/, "")}
                 </span>
               </div>
-              <div className="cue-progress-row">
-                <span className="cue-time">{formatTime(cueTime)}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-[0.72rem] text-slate-400 tabular-nums min-w-[35px]">{formatTime(cueTime)}</span>
                 <input type="range" className="cue-progress-bar"
                   min={0} max={isNaN(cueDuration) ? 0 : cueDuration}
                   step={0.01} value={isNaN(cueTime) ? 0 : cueTime} onChange={handleCueSeek} />
-                <span className="cue-time">{formatTime(cueDuration)}</span>
-                <button className={`cue-stop-btn${cuePlaying ? " active" : ""}`}
+                <span className="text-[0.72rem] text-slate-400 tabular-nums min-w-[35px]">{formatTime(cueDuration)}</span>
+                <button
+                  className={`shrink-0 bg-white/10 border-none rounded-md px-2 py-1 text-[0.9rem] cursor-pointer transition-colors ${cuePlaying ? "text-red-300" : "text-slate-400"} hover:bg-red-500/30 hover:text-red-300`}
                   onClick={() => {
                     if (cueRef.current) { cueRef.current.pause(); cueRef.current.currentTime = 0; }
                     setCuePlaying(false); setCueTime(0); setCueFile(null);
@@ -790,10 +932,13 @@ function App() {
       {/* Ghost do drag */}
       <DragOverlay>
         {activeFile && (
-          <div className={`midia drag-overlay${isOverPlaylist ? " drag-over-target" : ""}`}>
-            <span className="drag-overlay-icon">🎵</span>
-            <span className="midia-name">{activeFile.name.replace(/\.[^/.]+$/, "")}</span>
-            <span className="midia-ext">{activeFile.name.split(".").pop()?.toUpperCase()}</span>
+          <div className={[
+            "flex items-center gap-2.5 px-3 h-12 max-w-[360px] backdrop-blur-md bg-slate-900/90 border rounded-lg shadow-[0_8px_32px_rgba(0,0,0,0.4)] cursor-grabbing opacity-95 pointer-events-none",
+            isOverPlaylist ? "border-emerald-500/70 bg-[rgba(16,50,35,0.95)] shadow-[0_8px_32px_rgba(52,211,153,0.25)]" : "border-white/20",
+          ].join(" ")}>
+            <span className="text-base shrink-0">🎵</span>
+            <span className="flex-1 text-[0.82rem] text-white/90 whitespace-nowrap overflow-hidden text-ellipsis">{activeFile.name.replace(/\.[^/.]+$/, "")}</span>
+            <span className="text-[0.62rem] bg-white/10 text-slate-400 px-1.5 py-0.5 rounded font-semibold shrink-0">{activeFile.name.split(".").pop()?.toUpperCase()}</span>
           </div>
         )}
       </DragOverlay>
