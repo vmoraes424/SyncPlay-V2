@@ -67,6 +67,90 @@ body {
   border-radius: 4px;
 }
 
+/* ─── Drag & Drop ─────────────────────────────────────────────────────────── */
+
+/* Coluna esquerda quando um item está sobre ela */
+.left-column.drop-over {
+  border-color: rgba(52, 211, 153, 0.6);
+  box-shadow: 0 0 0 2px rgba(52, 211, 153, 0.3), 0 4px 30px rgba(0, 0, 0, 0.1);
+  background: rgba(30, 41, 59, 0.85);
+}
+
+/* Ghost visual que segue o cursor */
+.drag-overlay {
+  backdrop-filter: blur(8px);
+  background: rgba(30, 41, 59, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  cursor: grabbing;
+  opacity: 0.92;
+  padding: 0 0.75rem;
+  height: 48px;
+  max-width: 360px;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.drag-overlay-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+/* Ghost muda de cor quando está sobre a playlist */
+.drag-overlay.drag-over-target {
+  border-color: rgba(52, 211, 153, 0.7);
+  background: rgba(16, 50, 35, 0.95);
+  box-shadow: 0 8px 32px rgba(52, 211, 153, 0.25);
+}
+
+/* ─── Drop Slots (linhas de inserção na playlist) ─────────────────────────── */
+
+.drop-slot {
+  height: 4px;
+  border-radius: 2px;
+  margin: 1px 4px;
+  transition: height 0.12s ease, background 0.12s ease, box-shadow 0.12s ease;
+}
+
+.drop-slot-active {
+  height: 14px;
+  background: linear-gradient(to right, transparent, rgba(52, 211, 153, 0.85), transparent);
+  box-shadow: 0 0 10px rgba(52, 211, 153, 0.5);
+  border-radius: 4px;
+}
+
+/* Bloco sem mídias com zona de drop */
+.block-empty-drop {
+  position: relative;
+}
+
+.block-empty-drop .drop-slot {
+  height: 32px;
+  border: 1px dashed rgba(52, 211, 153, 0.3);
+  border-radius: 6px;
+  margin: 4px;
+}
+
+.block-empty-drop .drop-slot-active {
+  height: 32px;
+  border: 1px solid rgba(52, 211, 153, 0.7);
+  background: rgba(52, 211, 153, 0.08);
+}
+
+.block-empty-drop .no-music {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  margin: 0;
+  font-size: 0.8rem;
+}
+
 .right-column {
   display: flex;
   flex-direction: column;
@@ -612,3 +696,32 @@ body {
   0% { opacity: 1; width: 100%; }
   100% { opacity: 0; width: 0%; }
 }
+
+/* Selects Row */
+.selects-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.midias-select {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  padding: 0.4rem 0.75rem;
+  color: var(--text-primary);
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.8rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.midias-select:focus {
+  border-color: var(--accent-color);
+}
+
+.midias-select option {
+  background: var(--bg-color);
+  color: var(--text-primary);
+}
+

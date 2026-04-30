@@ -17,16 +17,24 @@ struct AudioState {
     playback: Arc<Mutex<PlaybackState>>,
 }
 
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
-
 #[tauri::command]
 fn read_playlist(date: &str) -> Result<String, String> {
     let path = format!("C:/SyncPlay/Playlists/{}.json", date);
-    fs::read_to_string(&path).map_err(|e| e.to_string())
+    let bytes = fs::read(&path).map_err(|e| e.to_string())?;
+    if let Ok(utf8_str) = String::from_utf8(bytes.clone()) {
+        return Ok(utf8_str);
+    }
+    Ok(bytes.into_iter().map(|b| b as char).collect())
+}
+
+#[tauri::command]
+fn read_config(filename: &str) -> Result<String, String> {
+    let path = format!("C:/SyncPlay/{}", filename);
+    let bytes = fs::read(&path).map_err(|e| e.to_string())?;
+    if let Ok(utf8_str) = String::from_utf8(bytes.clone()) {
+        return Ok(utf8_str);
+    }
+    Ok(bytes.into_iter().map(|b| b as char).collect())
 }
 
 #[tauri::command]
@@ -65,22 +73,27 @@ fn get_playback_state(state: State<'_, AudioState>) -> Result<PlaybackState, Str
 }
 
 #[tauri::command]
-fn list_directory(dir_path: String) -> Result<Vec<DirFileEntry>, String> {
+fn list_directories(dir_paths: Vec<String>) -> Result<Vec<DirFileEntry>, String> {
     const AUDIO_EXTS: &[&str] = &["mp3", "wav", "ogg", "flac", "aac", "m4a", "wma", "opus"];
-    let entries = fs::read_dir(&dir_path).map_err(|e| e.to_string())?;
     let mut files: Vec<DirFileEntry> = Vec::new();
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if !path.is_file() { continue; }
-        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-            if AUDIO_EXTS.contains(&ext.to_lowercase().as_str()) {
-                let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
-                let size_bytes = entry.metadata().map(|m| m.len()).unwrap_or(0);
-                let full_path = path.to_string_lossy().to_string();
-                files.push(DirFileEntry { name, path: full_path, size_bytes });
+    
+    for dir_path in dir_paths {
+        if let Ok(entries) = fs::read_dir(&dir_path) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !path.is_file() { continue; }
+                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                    if AUDIO_EXTS.contains(&ext.to_lowercase().as_str()) {
+                        let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                        let size_bytes = entry.metadata().map(|m| m.len()).unwrap_or(0);
+                        let full_path = path.to_string_lossy().to_string();
+                        files.push(DirFileEntry { name, path: full_path, size_bytes });
+                    }
+                }
             }
         }
     }
+    
     files.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     Ok(files)
 }
@@ -96,8 +109,8 @@ pub fn run() {
         })
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
-            greet, 
             read_playlist,
+            read_config,
             set_queue,
             play_index,
             pause_audio,
@@ -105,7 +118,7 @@ pub fn run() {
             seek_audio,
             skip_with_fade,
             get_playback_state,
-            list_directory
+            list_directories
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
