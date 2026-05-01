@@ -90,6 +90,7 @@ export interface ScheduledMediaDto {
   title: string;
   mediaType: string;
   path: string;
+  rawStartSec: number | null;
   durationSec: number | null;
   mixOutSec: number | null;
   disabled: boolean;
@@ -108,20 +109,31 @@ export interface ScheduledBlockDto {
   medias: ScheduledMediaDto[];
 }
 
+export interface ScheduleMediaStartDto {
+  id: string;
+  rawStartSec: number | null;
+  startSec: number;
+  startLabel: string;
+  active: boolean;
+}
+
 export type ScheduleSelectionDto =
   | {
       type: 'active';
       musicId: string;
       elapsedSec: number;
       activeQueueIds: string[];
+      mediaStarts: ScheduleMediaStartDto[];
     }
   | {
       type: 'upcoming';
       musicId: string;
       startsInSec: number;
       activeQueueIds: string[];
+      mediaStarts: ScheduleMediaStartDto[];
     }
   | {
       type: 'empty';
       activeQueueIds: string[];
+      mediaStarts: ScheduleMediaStartDto[];
     };

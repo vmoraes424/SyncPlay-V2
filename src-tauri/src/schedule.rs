@@ -21,6 +21,7 @@ pub struct ScheduledMedia {
     pub title: String,
     pub media_type: String,
     pub path: String,
+    pub raw_start_sec: Option<SecondsOfDay>,
     pub duration_sec: Option<f64>,
     pub mix_out_sec: Option<f64>,
     pub disabled: bool,
@@ -61,15 +62,27 @@ pub enum BlockScheduleSelection {
         music_id: String,
         elapsed_sec: f64,
         active_queue_ids: Vec<String>,
+        media_starts: Vec<ScheduleMediaStart>,
     },
     Upcoming {
         music_id: String,
         starts_in_sec: f64,
         active_queue_ids: Vec<String>,
+        media_starts: Vec<ScheduleMediaStart>,
     },
     Empty {
         active_queue_ids: Vec<String>,
+        media_starts: Vec<ScheduleMediaStart>,
     },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScheduleMediaStart {
+    pub id: String,
+    pub raw_start_sec: Option<SecondsOfDay>,
+    pub start_sec: SecondsOfDay,
+    pub start_label: String,
+    pub active: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,6 +96,14 @@ pub enum ScheduleMode {
 /// Aceita valores negativos, pois alguns cálculos fazem subtração.
 pub fn normalize_day_seconds(seconds: f64) -> SecondsOfDay {
     seconds.rem_euclid(DAY_SECONDS as f64) as u32
+}
+
+pub fn format_seconds_of_day(seconds: SecondsOfDay) -> String {
+    let seconds = seconds % DAY_SECONDS;
+    let hours = seconds / 3600;
+    let minutes = (seconds % 3600) / 60;
+    let secs = seconds % 60;
+    format!("{hours:02}:{minutes:02}:{secs:02}")
 }
 
 /// Diferença circular entre `now` e um `target` futuro.
@@ -344,6 +365,7 @@ fn apply_discard(block: &mut ScheduledBlock, music_discard_time_sec: f64, discar
 struct RuntimeMedia {
     id: String,
     path: String,
+    raw_start_sec: Option<SecondsOfDay>,
     start_sec: SecondsOfDay,
     duration_sec: Option<f64>,
     effective_duration_sec: f64,
@@ -362,6 +384,7 @@ fn recalculate_block_media_starts(block: &ScheduledBlock) -> Vec<RuntimeMedia> {
         runtime.push(RuntimeMedia {
             id: media.id.clone(),
             path: media.path.clone(),
+            raw_start_sec: media.raw_start_sec,
             start_sec,
             duration_sec: media.duration_sec,
             effective_duration_sec: effective,
@@ -402,6 +425,16 @@ pub fn select_music_from_blocks(
         .filter(|item| !item.path.trim().is_empty())
         .map(|item| item.id.clone())
         .collect();
+    let media_starts: Vec<ScheduleMediaStart> = runtime_items
+        .iter()
+        .map(|item| ScheduleMediaStart {
+            id: item.id.clone(),
+            raw_start_sec: item.raw_start_sec,
+            start_sec: item.start_sec,
+            start_label: format_seconds_of_day(item.start_sec),
+            active: item.counts_for_schedule,
+        })
+        .collect();
 
     for item in runtime_items
         .iter()
@@ -424,6 +457,7 @@ pub fn select_music_from_blocks(
                 music_id: item.id.clone(),
                 elapsed_sec: raw_elapsed.min(max_elapsed),
                 active_queue_ids,
+                media_starts,
             };
         }
     }
@@ -439,8 +473,12 @@ pub fn select_music_from_blocks(
             music_id: item.id.clone(),
             starts_in_sec: seconds_until(now_sec, item.start_sec) as f64,
             active_queue_ids,
+            media_starts,
         },
-        None => BlockScheduleSelection::Empty { active_queue_ids },
+        None => BlockScheduleSelection::Empty {
+            active_queue_ids,
+            media_starts,
+        },
     }
 }
 
@@ -483,6 +521,7 @@ mod tests {
             title: id.to_string(),
             media_type: "music".to_string(),
             path: format!("{id}.mp3"),
+            raw_start_sec: None,
             duration_sec: Some(duration_sec),
             mix_out_sec: Some(0.0),
             disabled: false,
@@ -720,6 +759,22 @@ mod tests {
                 music_id: "empire".to_string(),
                 elapsed_sec: 23.0,
                 active_queue_ids: vec!["first".to_string(), "empire".to_string()],
+                media_starts: vec![
+                    ScheduleMediaStart {
+                        id: "first".to_string(),
+                        raw_start_sec: None,
+                        start_sec: 79_201,
+                        start_label: format_seconds_of_day(79_201),
+                        active: true,
+                    },
+                    ScheduleMediaStart {
+                        id: "empire".to_string(),
+                        raw_start_sec: None,
+                        start_sec: 79_307,
+                        start_label: format_seconds_of_day(79_307),
+                        active: true,
+                    },
+                ],
             }
         );
     }
@@ -742,6 +797,29 @@ mod tests {
                 music_id: "b".to_string(),
                 elapsed_sec: 50.0,
                 active_queue_ids: vec!["a".to_string(), "b".to_string()],
+                media_starts: vec![
+                    ScheduleMediaStart {
+                        id: "a".to_string(),
+                        raw_start_sec: None,
+                        start_sec: 1_000,
+                        start_label: format_seconds_of_day(1_000),
+                        active: true,
+                    },
+                    ScheduleMediaStart {
+                        id: "b".to_string(),
+                        raw_start_sec: None,
+                        start_sec: 1_100,
+                        start_label: format_seconds_of_day(1_100),
+                        active: true,
+                    },
+                    ScheduleMediaStart {
+                        id: "discarded-tail".to_string(),
+                        raw_start_sec: None,
+                        start_sec: 1_200,
+                        start_label: format_seconds_of_day(1_200),
+                        active: false,
+                    },
+                ],
             }
         );
     }
@@ -762,6 +840,29 @@ mod tests {
                 music_id: "b".to_string(),
                 elapsed_sec: 20.0,
                 active_queue_ids: vec!["a".to_string(), "b".to_string()],
+                media_starts: vec![
+                    ScheduleMediaStart {
+                        id: "a".to_string(),
+                        raw_start_sec: None,
+                        start_sec: 2_000,
+                        start_label: format_seconds_of_day(2_000),
+                        active: true,
+                    },
+                    ScheduleMediaStart {
+                        id: "manual".to_string(),
+                        raw_start_sec: None,
+                        start_sec: 2_100,
+                        start_label: format_seconds_of_day(2_100),
+                        active: false,
+                    },
+                    ScheduleMediaStart {
+                        id: "b".to_string(),
+                        raw_start_sec: None,
+                        start_sec: 2_100,
+                        start_label: format_seconds_of_day(2_100),
+                        active: true,
+                    },
+                ],
             }
         );
     }

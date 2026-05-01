@@ -18,7 +18,7 @@ import "./App.css";
 import type {
   MediaCategory, DirectoryOptionKind, DirectoryOption,
   DirFile, Music, SyncPlayData,
-  PlayableItem, ScheduledBlockDto, ScheduleSelectionDto,
+  PlayableItem, ScheduledBlockDto, ScheduleMediaStartDto, ScheduleSelectionDto,
 } from './types';
 import { BlockHeader } from './components/BlockHeader';
 import { PlaylistMusicItem } from './components/PlaylistMusicItem';
@@ -111,6 +111,12 @@ function mediaMixOutMs(music: Music) {
   return music.extra?.mix?.mix_total_milesecond ?? null;
 }
 
+function rawStartSec(music: Music) {
+  return typeof music.start === 'number' && Number.isFinite(music.start)
+    ? Math.floor(music.start)
+    : null;
+}
+
 function buildPlaylistRuntimeItems(data: SyncPlayData) {
   const playableItems: PlayableItem[] = [];
   const scheduledBlocks: ScheduledBlockDto[] = [];
@@ -139,6 +145,7 @@ function buildPlaylistRuntimeItems(data: SyncPlayData) {
           title: music.text || `Mídia: ${music.type ?? musicKey}`,
           mediaType: music.type ?? '',
           path: music.path ?? '',
+          rawStartSec: rawStartSec(music),
           durationSec: duration_ms !== null ? duration_ms / 1000 : music.duration ?? null,
           mixOutSec: fade_duration_ms !== null ? fade_duration_ms / 1000 : null,
           disabled: legacyBool(music.disabled),
@@ -265,6 +272,7 @@ function App() {
   const [duration, setDuration] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [scheduledMusicId, setScheduledMusicId] = useState<string | null>(null);
+  const [scheduleStarts, setScheduleStarts] = useState<Record<string, ScheduleMediaStartDto>>({});
   const playableItemsRef = useRef<PlayableItem[]>([]);
   const scheduleTimerRef = useRef<number | null>(null);
   const playlistItemRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -590,7 +598,10 @@ function App() {
         if (scheduledBlocks.length === 0) {
           playableItemsRef.current = playableItems;
           await invoke("set_queue", { items: playableItems });
-          if (!cancelled) setScheduledMusicId(null);
+          if (!cancelled) {
+            setScheduledMusicId(null);
+            setScheduleStarts({});
+          }
           return;
         }
 
@@ -598,6 +609,8 @@ function App() {
           blocks: scheduledBlocks,
         });
         if (cancelled) return;
+
+        setScheduleStarts(Object.fromEntries(selection.mediaStarts.map(item => [item.id, item])));
 
         const activeIds = new Set(selection.activeQueueIds);
         const effectiveQueue = selection.activeQueueIds.length > 0
@@ -612,6 +625,11 @@ function App() {
           const index = effectiveQueue.findIndex(item => item.id === selection.musicId);
           if (index !== -1) {
             await invoke("play_index", { index });
+            if (selection.elapsedSec > 0) {
+              await invoke("seek_audio", {
+                positionMs: Math.floor(selection.elapsedSec * 1000),
+              });
+            }
           }
         } else if (selection.type === "upcoming") {
           setScheduledMusicId(selection.musicId);
@@ -727,6 +745,7 @@ function App() {
                                 const uniqueId = `${plKey}-${blockKey}-${musicKey}`;
                                 const isCurrentlyPlaying = playingId === uniqueId;
                                 const isBackgroundPlaying = backgroundIds.includes(uniqueId);
+                                const scheduleStart = scheduleStarts[uniqueId];
                                 return (
                                   <div
                                     key={musicKey}
@@ -739,6 +758,7 @@ function App() {
                                     <DroppableSlot id={`slot-before-${plKey}|${blockKey}|${musicKey}`} />
                                     <PlaylistMusicItem
                                       music={music}
+                                      startLabel={scheduleStart?.startLabel}
                                       isCurrentlyPlaying={isCurrentlyPlaying}
                                       isBackgroundPlaying={isBackgroundPlaying}
                                       isScheduledUpcoming={scheduledMusicId === uniqueId && !isCurrentlyPlaying && !isBackgroundPlaying}

@@ -3,7 +3,8 @@ mod schedule;
 use audio::{AudioCommand, AudioItem, PlaybackState};
 use chrono::{Local, Timelike};
 use schedule::{
-    select_music_from_blocks, BlockScheduleSelection, ScheduledBlock, ScheduledMedia, SecondsOfDay,
+    select_music_from_blocks, BlockScheduleSelection, ScheduleMediaStart, ScheduledBlock,
+    ScheduledMedia, SecondsOfDay,
 };
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -29,6 +30,7 @@ struct ScheduledMediaDto {
     title: String,
     media_type: String,
     path: String,
+    raw_start_sec: Option<SecondsOfDay>,
     duration_sec: Option<f64>,
     mix_out_sec: Option<f64>,
     disabled: bool,
@@ -46,6 +48,7 @@ impl From<ScheduledMediaDto> for ScheduledMedia {
             title: item.title,
             media_type: item.media_type,
             path: item.path,
+            raw_start_sec: item.raw_start_sec,
             duration_sec: item.duration_sec,
             mix_out_sec: item.mix_out_sec,
             disabled: item.disabled,
@@ -81,6 +84,28 @@ impl From<ScheduledBlockDto> for ScheduledBlock {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ScheduleMediaStartDto {
+    id: String,
+    raw_start_sec: Option<SecondsOfDay>,
+    start_sec: SecondsOfDay,
+    start_label: String,
+    active: bool,
+}
+
+impl From<ScheduleMediaStart> for ScheduleMediaStartDto {
+    fn from(item: ScheduleMediaStart) -> Self {
+        Self {
+            id: item.id,
+            raw_start_sec: item.raw_start_sec,
+            start_sec: item.start_sec,
+            start_label: item.start_label,
+            active: item.active,
+        }
+    }
+}
+
+#[derive(Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 enum ScheduleSelectionDto {
     #[serde(rename_all = "camelCase")]
@@ -88,15 +113,20 @@ enum ScheduleSelectionDto {
         music_id: String,
         elapsed_sec: f64,
         active_queue_ids: Vec<String>,
+        media_starts: Vec<ScheduleMediaStartDto>,
     },
     #[serde(rename_all = "camelCase")]
     Upcoming {
         music_id: String,
         starts_in_sec: f64,
         active_queue_ids: Vec<String>,
+        media_starts: Vec<ScheduleMediaStartDto>,
     },
     #[serde(rename_all = "camelCase")]
-    Empty { active_queue_ids: Vec<String> },
+    Empty {
+        active_queue_ids: Vec<String>,
+        media_starts: Vec<ScheduleMediaStartDto>,
+    },
 }
 
 impl From<BlockScheduleSelection> for ScheduleSelectionDto {
@@ -106,21 +136,31 @@ impl From<BlockScheduleSelection> for ScheduleSelectionDto {
                 music_id,
                 elapsed_sec,
                 active_queue_ids,
+                media_starts,
             } => Self::Active {
                 music_id,
                 elapsed_sec,
                 active_queue_ids,
+                media_starts: media_starts.into_iter().map(Into::into).collect(),
             },
             BlockScheduleSelection::Upcoming {
                 music_id,
                 starts_in_sec,
                 active_queue_ids,
+                media_starts,
             } => Self::Upcoming {
                 music_id,
                 starts_in_sec,
                 active_queue_ids,
+                media_starts: media_starts.into_iter().map(Into::into).collect(),
             },
-            BlockScheduleSelection::Empty { active_queue_ids } => Self::Empty { active_queue_ids },
+            BlockScheduleSelection::Empty {
+                active_queue_ids,
+                media_starts,
+            } => Self::Empty {
+                active_queue_ids,
+                media_starts: media_starts.into_iter().map(Into::into).collect(),
+            },
         }
     }
 }

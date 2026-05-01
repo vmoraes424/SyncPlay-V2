@@ -1,5 +1,4 @@
 import type { Music } from '../types';
-import { formatSecondsOfDay } from '../time';
 
 // ─── Gradientes e bordas por tipo de mídia ────────────────────────────────────
 
@@ -30,6 +29,7 @@ interface PlaylistMusicItemProps {
   isBackgroundPlaying: boolean;
   isScheduledUpcoming: boolean;
   isPlaying: boolean;
+  startLabel?: string;
   currentTime: number;
   duration: number;
   backgroundPosition: number; // posição em ms
@@ -45,6 +45,7 @@ export function PlaylistMusicItem({
   isBackgroundPlaying,
   isScheduledUpcoming,
   isPlaying,
+  startLabel,
   currentTime,
   duration,
   backgroundPosition,
@@ -52,7 +53,6 @@ export function PlaylistMusicItem({
   onSeek,
 }: PlaylistMusicItemProps) {
   const title = music.text || `Mídia: ${music.type}`;
-  const startLabel = typeof music.start === 'number' ? formatSecondsOfDay(music.start, true) : null;
 
   // Background e borda por tipo
   const itemBg = TYPE_BG[music.type ?? ''];
