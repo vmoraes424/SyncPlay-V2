@@ -117,12 +117,18 @@ pub fn start_audio_engine() -> (mpsc::Sender<AudioCommand>, Arc<Mutex<PlaybackSt
                             let item = queue[idx].clone();
                             if let Ok(file) = File::open(&item.path) {
                                 if let Ok(decoder) = Decoder::new(BufReader::new(file)) {
-                                    let has_old_track = current_track.is_some();
+                                    // Crossfade só se a faixa atual estiver tocando; se estiver pausada,
+                                    // encerra sem fade (evita "sumir em fade" ao trocar/retomar manualmente).
+                                    let mut crossfade_from_previous = false;
                                     if let Some(mut old_track) = current_track.take() {
-                                        old_track.play(); // Força o play caso estivesse pausada
-                                        old_track.fade_out_start_pos =
-                                            Some(old_track.position.as_millis() as u64);
-                                        background_tracks.push(old_track);
+                                        crossfade_from_previous = old_track.is_playing;
+                                        if crossfade_from_previous {
+                                            old_track.fade_out_start_pos =
+                                                Some(old_track.position.as_millis() as u64);
+                                            background_tracks.push(old_track);
+                                        } else {
+                                            old_track.sink.stop();
+                                        }
                                     }
 
                                     log_debug(&format!(
@@ -132,7 +138,7 @@ pub fn start_audio_engine() -> (mpsc::Sender<AudioCommand>, Arc<Mutex<PlaybackSt
 
                                     let sink = Sink::try_new(&stream_handle).unwrap();
                                     sink.append(decoder);
-                                    if has_old_track {
+                                    if crossfade_from_previous {
                                         sink.set_volume(0.0); // Começa mutado para o fade in
                                     } else {
                                         sink.set_volume(1.0);
@@ -148,7 +154,7 @@ pub fn start_audio_engine() -> (mpsc::Sender<AudioCommand>, Arc<Mutex<PlaybackSt
                                         is_playing: true,
                                         mix_triggered: false,
                                         fade_out_start_pos: None,
-                                        fade_in_start_pos: if has_old_track {
+                                        fade_in_start_pos: if crossfade_from_previous {
                                             Some(0)
                                         } else {
                                             None

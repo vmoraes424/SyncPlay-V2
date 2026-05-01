@@ -58,12 +58,14 @@ function insertMusic(
   beforeKey: string | null
 ): SyncPlayData {
   const block = data.playlists[plKey].blocks[blockKey];
-  const entries = Object.entries(block.musics ?? {});
+  const useCommercials = block.type === 'commercial';
+  const prev = blockMediaRecord(block);
+  const entries = Object.entries(prev);
   const newKey = `dropped-${Date.now()}`;
   const newMusic: Music = {
     text: file.name.replace(/\.[^/.]+$/, ""),
     path: file.path,
-    type: "music",
+    type: useCommercials ? "commercial" : "music",
   };
 
   const insertIdx =
@@ -73,6 +75,11 @@ function insertMusic(
 
   entries.splice(insertIdx, 0, [newKey, newMusic]);
 
+  const updatedMedia = Object.fromEntries(entries);
+  const nextBlock = useCommercials
+    ? { ...block, commercials: updatedMedia }
+    : { ...block, musics: updatedMedia };
+
   return {
     ...data,
     playlists: {
@@ -81,7 +88,7 @@ function insertMusic(
         ...data.playlists[plKey],
         blocks: {
           ...data.playlists[plKey].blocks,
-          [blockKey]: { ...block, musics: Object.fromEntries(entries) },
+          [blockKey]: nextBlock,
         },
       },
     },
@@ -98,6 +105,13 @@ function orderedPlaylistEntries(data: SyncPlayData) {
 
 function orderedBlockEntries(blocks: SyncPlayData['playlists'][string]['blocks']) {
   return Object.entries(blocks).sort(([, a], [, b]) => numericStart(a.start) - numericStart(b.start));
+}
+
+/** Músicas ficam em `musics`; comerciais na playlist oficial vêm em `commercials`. */
+function blockMediaRecord(block: SyncPlayData['playlists'][string]['blocks'][string]): Record<string, Music> {
+  const commercials = block.commercials;
+  if (commercials && Object.keys(commercials).length > 0) return commercials;
+  return block.musics ?? {};
 }
 
 function legacyBool(value: unknown) {
@@ -128,17 +142,19 @@ function buildPlaylistRuntimeItems(data: SyncPlayData) {
 
   orderedPlaylistEntries(data).forEach(([plKey, pl]) =>
     orderedBlockEntries(pl.blocks).forEach(([blockKey, block]) => {
-      if (!block.musics) return;
+      const mediaMap = blockMediaRecord(block);
+      if (Object.keys(mediaMap).length === 0) return;
 
-      const medias = Object.entries(block.musics).map(([musicKey, music]) => {
+      const medias = Object.entries(mediaMap).map(([musicKey, music]) => {
         const uniqueId = `${plKey}-${blockKey}-${musicKey}`;
         const duration_ms = mediaDurationMs(music);
         const fade_duration_ms = mediaMixOutMs(music);
+        const playPath = music.path?.trim() || music.path_storage?.trim() || '';
 
-        if (music.path) {
+        if (playPath) {
           playableItems.push({
             id: uniqueId,
-            path: music.path,
+            path: playPath,
             mix_end_ms: music.extra?.mix?.mix_end ?? null,
             duration_ms,
             fade_duration_ms,
@@ -149,7 +165,7 @@ function buildPlaylistRuntimeItems(data: SyncPlayData) {
           id: uniqueId,
           title: music.text || `Mídia: ${music.type ?? musicKey}`,
           mediaType: music.type ?? '',
-          path: music.path ?? '',
+          path: playPath,
           rawStartSec: rawStartSec(music),
           durationSec: duration_ms !== null ? duration_ms / 1000 : music.duration ?? null,
           mixOutSec: fade_duration_ms !== null ? fade_duration_ms / 1000 : null,
@@ -750,12 +766,12 @@ function App() {
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
-      <div className="grid grid-cols-2 p-8 h-screen max-w-[1600px] mx-auto">
+      <div className="grid grid-cols-2 h-screen">
 
         {/* COLUNA ESQUERDA (playlist) */}
         <div
           className={[
-            "scrollable-y relative flex flex-col bg-(--glass-bg) backdrop-blur-xl border rounded-2xl p-6 shadow-[0_4px_30px_rgba(0,0,0,0.1)] overflow-y-auto",
+            "scrollable-y relative flex flex-col overflow-y-auto",
             isOverPlaylist
               ? "border-emerald-400/60 shadow-[0_0_0_2px_rgba(52,211,153,0.3),0_4px_30px_rgba(0,0,0,0.1)] bg-slate-800/85"
               : "border-white/10",
@@ -770,7 +786,7 @@ function App() {
                 <div key={plKey}>
                   <h2 className="playlist-title">{pl.program}</h2>
                   {blocks.map(([blockKey, block]) => {
-                    const musicEntries = Object.entries(block.musics ?? {});
+                    const musicEntries = Object.entries(blockMediaRecord(block));
                     const blockDisplayStart = getBlockDisplayStart(block.start, musicEntries);
                     return (
                       <section
@@ -781,7 +797,6 @@ function App() {
                         ].join(" ")}
                       >
                         <BlockHeader
-                          blockKey={blockKey}
                           blockType={block.type}
                           startLabel={typeof blockDisplayStart === 'number' ? formatSecondsOfDay(blockDisplayStart, true) : undefined}
                         />
@@ -848,7 +863,7 @@ function App() {
         </div>
 
         {/* COLUNA DIREITA (#midias)*/}
-        <div id="midias" className="flex flex-col bg-(--glass-bg) backdrop-blur-xl border border-white/10 rounded-2xl shadow-[0_4px_30px_rgba(0,0,0,0.1)] overflow-hidden p-0">
+        <div id="midias" className="flex flex-col overflow-hidden p-0">
           <div className="px-5 pt-5 pb-3 border-b border-white/10 flex flex-col gap-2.5 shrink-0">
             <h2 className="text-[1rem] font-semibold text-slate-400 tracking-[0.04em] uppercase">📂 Biblioteca de Mídias</h2>
             <div className="flex gap-2">

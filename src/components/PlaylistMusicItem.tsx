@@ -1,5 +1,7 @@
 import type { Music } from '../types';
 
+import proximaBcoImg from '../assets/proxima_bco.png';
+
 // ─── Gradientes e bordas por tipo de mídia ────────────────────────────────────
 
 const TYPE_BG: Record<string, string> = {
@@ -20,9 +22,10 @@ const BAR_MIX = 'rgba(255, 100, 50, 0.45)';
 
 function formatTimeRemaining(seconds: number) {
   if (isNaN(seconds) || seconds < 0) return '00:00';
+  const h = Math.floor(seconds / 3600);
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
 function splitArtistTitle(text: string): { artist: string | null; track: string } {
@@ -44,8 +47,10 @@ function getMixDurationSec(music: Music, displayDuration: number): number | null
   return null;
 }
 
-function formatMixMinutes(seconds: number) {
-  return `Mix ${(seconds / 60).toFixed(2).replace('.', ',')}`;
+function formatMixLabel(seconds: number) {
+  const t =
+    isNaN(seconds) || seconds < 0 ? '0,00' : seconds.toFixed(2).replace('.', ',');
+  return `Mix ${t}`;
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -97,9 +102,7 @@ export function PlaylistMusicItem({
           ? 'border-violet-500/25'
           : isScheduledUpcoming
             ? 'playlist-item--scheduled-upcoming'
-            : itemBorderColor
-              ? 'hover:brightness-110'
-              : 'bg-white/[0.025] border-white/[0.06] hover:bg-white/[0.05] hover:border-white/10',
+            :'bg-white/[0.025] border-white/[0.06]',
   ].join(' ');
 
   const itemStyle: React.CSSProperties = {
@@ -135,12 +138,12 @@ export function PlaylistMusicItem({
 
   const remainingSec = Math.max(0, displayDuration - itemCurrentTime);
   const mixSec = getMixDurationSec(music, displayDuration);
-  const mixLabel = mixSec !== null ? formatMixMinutes(mixSec) : null;
+  const mixLabel = mixSec !== null ? formatMixLabel(mixSec) : null;
 
   return (
     <div className={itemClass} style={itemStyle} title={isDisabled ? 'Mídia descartada/desabilitada' : undefined}>
       {/* Linha 1: play | artista/música | tempos */}
-      <div className="flex flex-row gap-3 items-start w-full min-w-0">
+      <div className="flex flex-row gap-3 items-start w-full min-w-0 h-full">
         <div className="w-8 shrink-0 flex justify-center items-start pt-0.5">
           {music.path ? (
             <button
@@ -163,14 +166,14 @@ export function PlaylistMusicItem({
           ) : null}
         </div>
 
-        <div className='flex flex-col w-full min-w-0  gap-1 flex-1'>
+        <div className='flex flex-col w-full min-w-0 gap-1 flex-1 relative h-full justify-between'>
           <div className="flex flex-col gap-1">
             {artist ? (
               <>
-                <span className="text-[0.78rem] font-semibold text-slate-400/95 leading-snug truncate" title={artist}>
+                <span className="text-smfont-semibold text-white leading-snug truncate underline cursor-pointer" title={artist}>
                   {artist}
                 </span>
-                <span className="text-[0.875rem] font-medium text-white/90 leading-snug truncate" title={track}>
+                <span className="text-sm font-medium text-white leading-snug truncate" title={track}>
                   {track}
                 </span>
               </>
@@ -205,6 +208,7 @@ export function PlaylistMusicItem({
           <span className="text-xl text-slate-300 tabular-nums font-semibold tracking-tight">
             {formatTimeRemaining(remainingSec)}
           </span>
+          <img src={proximaBcoImg} alt="" className="w-10 h-10 rotate-90" />
           <div className='flex gap-3'>
             {mixLabel && <span className="playlist-music-mix-label">{mixLabel}</span>}
             {startLabel && (

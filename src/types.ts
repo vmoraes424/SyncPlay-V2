@@ -31,6 +31,8 @@ export interface ExtraData {
 export interface Music {
   text?: string;
   type?: string;
+  /** URL remota (ex.: CDN) quando `path` é local/cache */
+  path_storage?: string;
   id?: number;
   start?: number;
   duration?: number;
@@ -53,7 +55,10 @@ export interface Block {
   size?: number;
   disableDiscard?: boolean | number;
   disable_discard?: boolean | number;
+  /** Itens musicais (blocos tipo musical) */
   musics?: Record<string, Music>;
+  /** Spot/comerciais (blocos tipo commercial no SyncPlay) */
+  commercials?: Record<string, Music>;
 }
 
 export interface Playlist {
