@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import {
@@ -39,6 +39,11 @@ function formatTime(seconds: number) {
   const s = Math.floor(seconds % 60);
   return `${m}:${s < 10 ? "0" : ""}${s}`;
 }
+
+const PLAYLIST_BLOCK_WINDOW = {
+  before: 2,
+  after: 2,
+};
 
 /**
  * Insere uma nova Music no bloco indicado.
@@ -183,6 +188,50 @@ function getBlockDisplayStart(blockStart: number | undefined, musicEntries: Arra
   )?.[1].start;
 }
 
+type PlaylistBlockWindow = typeof PLAYLIST_BLOCK_WINDOW;
+
+interface VisiblePlaylistGroup {
+  plKey: string;
+  pl: SyncPlayData['playlists'][string];
+  blocks: Array<[string, SyncPlayData['playlists'][string]['blocks'][string]]>;
+}
+
+function buildVisiblePlaylistGroups(
+  data: SyncPlayData,
+  anchorMusicId: string | null,
+  windowSize: PlaylistBlockWindow
+): VisiblePlaylistGroup[] {
+  const orderedBlocks = orderedPlaylistEntries(data).flatMap(([plKey, pl]) =>
+    orderedBlockEntries(pl.blocks).map(([blockKey, block]) => ({
+      plKey,
+      pl,
+      blockKey,
+      block,
+    }))
+  );
+
+  if (orderedBlocks.length === 0) return [];
+
+  const anchorIndex = anchorMusicId
+    ? orderedBlocks.findIndex(({ plKey, blockKey }) => anchorMusicId.startsWith(`${plKey}-${blockKey}-`))
+    : -1;
+  const baseIndex = anchorIndex >= 0 ? anchorIndex : 0;
+  const firstVisibleIndex = Math.max(0, baseIndex - windowSize.before);
+  const lastVisibleIndex = Math.min(orderedBlocks.length, baseIndex + windowSize.after + 1);
+  const visibleGroups: VisiblePlaylistGroup[] = [];
+
+  for (const { plKey, pl, blockKey, block } of orderedBlocks.slice(firstVisibleIndex, lastVisibleIndex)) {
+    const currentGroup = visibleGroups[visibleGroups.length - 1];
+    if (currentGroup?.plKey === plKey) {
+      currentGroup.blocks.push([blockKey, block]);
+    } else {
+      visibleGroups.push({ plKey, pl, blocks: [[blockKey, block]] });
+    }
+  }
+
+  return visibleGroups;
+}
+
 // --- DroppableSlot ---
 // Linha fina entre os itens da playlist — torna-se o target do drop.
 
@@ -312,6 +361,13 @@ function App() {
     estimateSize: () => 36,
     overscan: 10,
   });
+
+  const visiblePlaylistGroups = useMemo(
+    () => data
+      ? buildVisiblePlaylistGroups(data, playingId ?? scheduledMusicId, PLAYLIST_BLOCK_WINDOW)
+      : [],
+    [data, playingId, scheduledMusicId]
+  );
 
   const loadDirectories = useCallback(async (paths: string[]) => {
     setDirLoading(true);
@@ -710,10 +766,10 @@ function App() {
 
           {!loading && !error && data && (
             <div className="w-full">
-              {orderedPlaylistEntries(data).map(([plKey, pl]) => (
+              {visiblePlaylistGroups.map(({ plKey, pl, blocks }) => (
                 <div key={plKey}>
                   <h2 className="playlist-title">{pl.program}</h2>
-                  {orderedBlockEntries(pl.blocks).map(([blockKey, block]) => {
+                  {blocks.map(([blockKey, block]) => {
                     const musicEntries = Object.entries(block.musics ?? {});
                     const blockDisplayStart = getBlockDisplayStart(block.start, musicEntries);
                     return (
