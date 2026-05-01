@@ -14,13 +14,7 @@
 }
 
 /* ─── Base ─────────────────────────────────────────────────────────────────── */
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
+/* Preflight do Tailwind; não duplicar * { margin/padding: 0 } sem @layer (anula utilitários). */
 
 body {
   font-family: 'Outfit', sans-serif;
@@ -102,6 +96,16 @@ body {
 
 .progress-bar::-webkit-slider-thumb:hover {
   transform: scale(1.3);
+}
+
+/* Barra da playlist: trilho cinza, polegar neutro — a faixa de mix usa cor própria no gradiente */
+.playlist-music-progress-bar::-webkit-slider-thumb {
+  background: #94a3b8;
+  box-shadow: 0 0 8px rgba(148, 163, 184, 0.4);
+}
+
+.playlist-music-progress-bar::-webkit-slider-thumb:hover {
+  transform: scale(1.25);
 }
 
 .cue-progress-bar::-webkit-slider-thumb {
@@ -222,7 +226,36 @@ body {
 
 .playlist-music-start-time {
   color: #93c5fd;
-  font-size: 0.72rem;
+  font-size: 10px;
+}
+
+.playlist-music-mix-label {
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: rgba(203, 213, 225, 0.88);
+}
+
+.playlist-music-item.playing {
+  animation: playlist-music-playing-pulse 1.1s ease-in-out infinite;
+  border-style: solid;
+}
+
+@keyframes playlist-music-playing-pulse {
+  0%,
+  100% {
+    border-color: rgba(255, 255, 255, 0.28);
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.06),
+      0 0 12px rgba(255, 255, 255, 0.08);
+  }
+  50% {
+    border-color: rgba(255, 255, 255, 0.92);
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.35),
+      0 0 20px rgba(255, 255, 255, 0.22);
+  }
 }
 
 .playlist-item--scheduled-upcoming {

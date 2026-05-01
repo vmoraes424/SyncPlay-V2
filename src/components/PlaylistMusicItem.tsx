@@ -12,13 +12,40 @@ const TYPE_BORDER: Record<string, string> = {
   vem: 'rgba(113,108,6,0.55)',
 };
 
+const BAR_TRACK = 'rgba(148, 163, 184, 0.24)';
+const BAR_PLAYED = 'rgba(148, 163, 184, 0.62)';
+const BAR_MIX = 'rgba(255, 100, 50, 0.45)';
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function formatTime(seconds: number) {
-  if (isNaN(seconds) || seconds < 0) return '0:00';
+function formatTimeRemaining(seconds: number) {
+  if (isNaN(seconds) || seconds < 0) return '00:00';
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
-  return `${m}:${s < 10 ? '0' : ''}${s}`;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function splitArtistTitle(text: string): { artist: string | null; track: string } {
+  const idx = text.indexOf(' - ');
+  if (idx === -1) return { artist: null, track: text };
+  const artist = text.slice(0, idx).trim();
+  const track = text.slice(idx + 3).trim();
+  return { artist: artist || null, track: track || text };
+}
+
+function getMixDurationSec(music: Music, displayDuration: number): number | null {
+  const ms = music.extra?.mix?.mix_total_milesecond;
+  if (ms != null && ms > 0) return ms / 1000;
+  const mixEndMs = music.extra?.mix?.mix_end;
+  if (mixEndMs != null && displayDuration > 0) {
+    const tail = displayDuration - mixEndMs / 1000;
+    if (tail > 0) return tail;
+  }
+  return null;
+}
+
+function formatMixMinutes(seconds: number) {
+  return `Mix ${(seconds / 60).toFixed(2).replace('.', ',')}`;
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -54,25 +81,25 @@ export function PlaylistMusicItem({
   onPlay,
   onSeek,
 }: PlaylistMusicItemProps) {
-  const title = music.text || `Mídia: ${music.type}`;
+  const rawTitle = music.text || `Mídia: ${music.type}`;
+  const { artist, track } = splitArtistTitle(rawTitle);
 
-  // Background e borda por tipo
   const itemBg = TYPE_BG[music.type ?? ''];
   const itemBorderColor = TYPE_BORDER[music.type ?? ''];
 
   const itemClass = [
-    'flex flex-col px-3.5 py-3 rounded-xl transition-all duration-200 border mx-2 my-0.5',
+    'playlist-music-item flex flex-col rounded-sm transition-all duration-200 border mx-2 my-0.5 px-3 py-2',
     isDisabled
       ? 'bg-slate-950/35 border-slate-500/20 border-dashed opacity-45 grayscale saturate-0'
       : isCurrentlyPlaying
-      ? 'border-blue-500/25 shadow-[0_0_0_1px_rgba(59,130,246,0.15)]'
-      : isBackgroundPlaying
-        ? 'border-violet-500/25'
-        : isScheduledUpcoming
-          ? 'playlist-item--scheduled-upcoming'
-          : itemBorderColor
-          ? 'hover:brightness-110'
-          : 'bg-white/[0.025] border-white/[0.06] hover:bg-white/[0.05] hover:border-white/10',
+        ? 'playing'
+        : isBackgroundPlaying
+          ? 'border-violet-500/25'
+          : isScheduledUpcoming
+            ? 'playlist-item--scheduled-upcoming'
+            : itemBorderColor
+              ? 'hover:brightness-110'
+              : 'bg-white/[0.025] border-white/[0.06] hover:bg-white/[0.05] hover:border-white/10',
   ].join(' ');
 
   const itemStyle: React.CSSProperties = {
@@ -82,91 +109,111 @@ export function PlaylistMusicItem({
       : {}),
   };
 
-  // Duração display
   let displayDuration = 0;
   if (music.extra?.mix?.duration_total) displayDuration = music.extra.mix.duration_total / 1000;
   else if (music.extra?.mix?.duration_real) displayDuration = music.extra.mix.duration_real / 1000;
   else if (music.duration) displayDuration = music.duration;
   else if (isCurrentlyPlaying) displayDuration = duration;
 
-  // Tempo atual
   let itemCurrentTime = 0;
   if (isCurrentlyPlaying) itemCurrentTime = currentTime;
   else if (isBackgroundPlaying) itemCurrentTime = backgroundPosition / 1000;
 
-  // Progresso e mix-end
   const prog = displayDuration ? (itemCurrentTime / displayDuration) * 100 : 0;
-  let mixEnd: number | null = null;
+  let mixEndPct: number | null = null;
   if (music.extra?.mix?.mix_end && displayDuration)
-    mixEnd = (music.extra.mix.mix_end / 1000 / displayDuration) * 100;
+    mixEndPct = (music.extra.mix.mix_end / 1000 / displayDuration) * 100;
 
-  let barBg = `linear-gradient(to right, var(--accent-color) ${prog}%, rgba(255,255,255,0.08) ${prog}%)`;
-  if (mixEnd !== null) {
-    barBg = prog < mixEnd
-      ? `linear-gradient(to right, var(--accent-color) ${prog}%, rgba(255,255,255,0.08) ${prog}%, rgba(255,255,255,0.08) ${mixEnd}%, rgba(255,100,50,0.4) ${mixEnd}%)`
-      : `linear-gradient(to right, var(--accent-color) ${prog}%, rgba(255,100,50,0.4) ${prog}%)`;
+  let barBg: string;
+  if (mixEndPct === null) {
+    barBg = `linear-gradient(to right, ${BAR_PLAYED} ${prog}%, ${BAR_TRACK} ${prog}%)`;
+  } else if (prog < mixEndPct) {
+    barBg = `linear-gradient(to right, ${BAR_PLAYED} ${prog}%, ${BAR_TRACK} ${prog}%, ${BAR_TRACK} ${mixEndPct}%, ${BAR_MIX} ${mixEndPct}%)`;
+  } else {
+    barBg = `linear-gradient(to right, ${BAR_PLAYED} ${prog}%, ${BAR_MIX} ${prog}%)`;
   }
+
+  const remainingSec = Math.max(0, displayDuration - itemCurrentTime);
+  const mixSec = getMixDurationSec(music, displayDuration);
+  const mixLabel = mixSec !== null ? formatMixMinutes(mixSec) : null;
 
   return (
     <div className={itemClass} style={itemStyle} title={isDisabled ? 'Mídia descartada/desabilitada' : undefined}>
-      {/* Linha superior: play + título + badge */}
-      <div className="flex items-center gap-3 w-full">
-        {music.path && (
-          <button
-            className={[
-              'w-8 h-8 rounded-full flex items-center justify-center text-white shrink-0 p-0 text-[0.85rem] transition-all duration-200',
-              isDisabled
-                ? 'bg-white/5 text-slate-500 cursor-not-allowed'
-                : isCurrentlyPlaying && isPlaying
-                ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.4)] animate-pulse-btn'
-                : 'bg-white/10 hover:bg-blue-500 hover:shadow-[0_0_10px_rgba(59,130,246,0.4)] hover:scale-110',
-            ].join(' ')}
-            onClick={onPlay}
-            disabled={isDisabled}
-            title={isDisabled ? 'Mídia descartada/desabilitada' : isCurrentlyPlaying && isPlaying ? 'Pausar' : 'Tocar'}
-          >
-            {isCurrentlyPlaying && isPlaying ? '⏸' : '▶'}
-          </button>
-        )}
-        <span className="flex-1 text-[0.875rem] font-medium text-white/90 whitespace-nowrap overflow-hidden text-ellipsis">
-          {title}
-        </span>
-        {startLabel && (
-          <span className="playlist-music-start-time" title="Horário previsto da mídia">
-            {startLabel}
-          </span>
-        )}
-        {music.type && (
-          <span className="text-[0.6rem] uppercase tracking-widest font-bold bg-white/8 px-2 py-0.5 rounded-full text-slate-400 whitespace-nowrap shrink-0">
-            {music.type}
-          </span>
-        )}
-        {isDisabled && (
-          <span className="text-[0.58rem] uppercase tracking-widest font-bold bg-slate-700/60 px-2 py-0.5 rounded-full text-slate-300 whitespace-nowrap shrink-0">
-            inativa
-          </span>
-        )}
-      </div>
+      {/* Linha 1: play | artista/música | tempos */}
+      <div className="flex flex-row gap-3 items-start w-full min-w-0">
+        <div className="w-8 shrink-0 flex justify-center items-start pt-0.5">
+          {music.path ? (
+            <button
+              className={[
+                'w-8 h-8 rounded-full flex items-center justify-center text-white shrink-0 p-0 text-[0.85rem] transition-all duration-200',
+                isDisabled
+                  ? 'bg-white/5 text-slate-500 cursor-not-allowed'
+                  : isCurrentlyPlaying && isPlaying
+                    ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.4)] animate-pulse-btn'
+                    : 'bg-white/10 hover:bg-blue-500 hover:shadow-[0_0_10px_rgba(59,130,246,0.4)] hover:scale-110',
+              ].join(' ')}
+              onClick={onPlay}
+              disabled={isDisabled}
+              title={
+                isDisabled ? 'Mídia descartada/desabilitada' : isCurrentlyPlaying && isPlaying ? 'Pausar' : 'Tocar'
+              }
+            >
+              {isCurrentlyPlaying && isPlaying ? '⏸' : '▶'}
+            </button>
+          ) : null}
+        </div>
 
-      {/* Linha inferior: progress bar com tempos */}
-      <div className="flex items-center gap-2.5 w-full mt-2.5 pl-[44px]">
-        <span className="text-[0.7rem] text-slate-500 tabular-nums min-w-[32px]">
-          {formatTime(itemCurrentTime)}
-        </span>
-        <input
-          type="range"
-          className="progress-bar"
-          min="0"
-          max={displayDuration || 0}
-          step="0.001"
-          value={itemCurrentTime}
-          onChange={onSeek}
-          disabled={isDisabled || !isCurrentlyPlaying}
-          style={{ background: barBg }}
-        />
-        <span className="text-[0.7rem] text-slate-500 tabular-nums min-w-[32px] text-right">
-          {formatTime(displayDuration)}
-        </span>
+        <div className='flex flex-col w-full min-w-0  gap-1 flex-1'>
+          <div className="flex flex-col gap-1">
+            {artist ? (
+              <>
+                <span className="text-[0.78rem] font-semibold text-slate-400/95 leading-snug truncate" title={artist}>
+                  {artist}
+                </span>
+                <span className="text-[0.875rem] font-medium text-white/90 leading-snug truncate" title={track}>
+                  {track}
+                </span>
+              </>
+            ) : (
+              <span className="text-[0.875rem] font-medium text-white/90 truncate" title={rawTitle}>
+                {track}
+              </span>
+            )}
+            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+              {isDisabled && (
+                <span className="text-[0.58rem] uppercase tracking-widest font-bold bg-slate-700/60 px-2 py-0.5 rounded-full text-slate-300 whitespace-nowrap">
+                  inativa
+                </span>
+              )}
+            </div>
+          </div>
+
+          <input
+            type="range"
+            className="progress-bar playlist-music-progress-bar w-full min-w-0 min-h-[12px] bg-zinc-900!"
+            min="0"
+            max={displayDuration || 0}
+            step="0.001"
+            value={itemCurrentTime}
+            onChange={onSeek}
+            disabled={isDisabled || !isCurrentlyPlaying}
+            style={{ background: barBg }}
+          />
+        </div>
+
+        <div className="shrink-0 flex flex-col items-center justify-center gap-0.5 min-w-0 w-[20%]">
+          <span className="text-xl text-slate-300 tabular-nums font-semibold tracking-tight">
+            {formatTimeRemaining(remainingSec)}
+          </span>
+          <div className='flex gap-3'>
+            {mixLabel && <span className="playlist-music-mix-label">{mixLabel}</span>}
+            {startLabel && (
+              <span className="playlist-music-start-time" title="Horário previsto da mídia">
+                {startLabel}
+              </span>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
