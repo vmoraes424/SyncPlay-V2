@@ -28,6 +28,7 @@ interface PlaylistMusicItemProps {
   isCurrentlyPlaying: boolean;
   isBackgroundPlaying: boolean;
   isScheduledUpcoming: boolean;
+  isDisabled: boolean;
   isPlaying: boolean;
   startLabel?: string;
   currentTime: number;
@@ -44,6 +45,7 @@ export function PlaylistMusicItem({
   isCurrentlyPlaying,
   isBackgroundPlaying,
   isScheduledUpcoming,
+  isDisabled,
   isPlaying,
   startLabel,
   currentTime,
@@ -60,7 +62,9 @@ export function PlaylistMusicItem({
 
   const itemClass = [
     'flex flex-col px-3.5 py-3 rounded-xl transition-all duration-200 border mx-2 my-0.5',
-    isCurrentlyPlaying
+    isDisabled
+      ? 'bg-slate-950/35 border-slate-500/20 border-dashed opacity-45 grayscale saturate-0'
+      : isCurrentlyPlaying
       ? 'border-blue-500/25 shadow-[0_0_0_1px_rgba(59,130,246,0.15)]'
       : isBackgroundPlaying
         ? 'border-violet-500/25'
@@ -72,8 +76,8 @@ export function PlaylistMusicItem({
   ].join(' ');
 
   const itemStyle: React.CSSProperties = {
-    ...(itemBg ? { background: itemBg } : {}),
-    ...(itemBorderColor && !isCurrentlyPlaying && !isBackgroundPlaying
+    ...(itemBg && !isDisabled ? { background: itemBg } : {}),
+    ...(itemBorderColor && !isDisabled && !isCurrentlyPlaying && !isBackgroundPlaying
       ? { borderColor: itemBorderColor }
       : {}),
   };
@@ -104,19 +108,22 @@ export function PlaylistMusicItem({
   }
 
   return (
-    <div className={itemClass} style={itemStyle}>
+    <div className={itemClass} style={itemStyle} title={isDisabled ? 'Mídia descartada/desabilitada' : undefined}>
       {/* Linha superior: play + título + badge */}
       <div className="flex items-center gap-3 w-full">
         {music.path && (
           <button
             className={[
               'w-8 h-8 rounded-full flex items-center justify-center text-white shrink-0 p-0 text-[0.85rem] transition-all duration-200',
-              isCurrentlyPlaying && isPlaying
+              isDisabled
+                ? 'bg-white/5 text-slate-500 cursor-not-allowed'
+                : isCurrentlyPlaying && isPlaying
                 ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.4)] animate-pulse-btn'
                 : 'bg-white/10 hover:bg-blue-500 hover:shadow-[0_0_10px_rgba(59,130,246,0.4)] hover:scale-110',
             ].join(' ')}
             onClick={onPlay}
-            title={isCurrentlyPlaying && isPlaying ? 'Pausar' : 'Tocar'}
+            disabled={isDisabled}
+            title={isDisabled ? 'Mídia descartada/desabilitada' : isCurrentlyPlaying && isPlaying ? 'Pausar' : 'Tocar'}
           >
             {isCurrentlyPlaying && isPlaying ? '⏸' : '▶'}
           </button>
@@ -134,6 +141,11 @@ export function PlaylistMusicItem({
             {music.type}
           </span>
         )}
+        {isDisabled && (
+          <span className="text-[0.58rem] uppercase tracking-widest font-bold bg-slate-700/60 px-2 py-0.5 rounded-full text-slate-300 whitespace-nowrap shrink-0">
+            inativa
+          </span>
+        )}
       </div>
 
       {/* Linha inferior: progress bar com tempos */}
@@ -149,7 +161,7 @@ export function PlaylistMusicItem({
           step="0.001"
           value={itemCurrentTime}
           onChange={onSeek}
-          disabled={!isCurrentlyPlaying}
+          disabled={isDisabled || !isCurrentlyPlaying}
           style={{ background: barBg }}
         />
         <span className="text-[0.7rem] text-slate-500 tabular-nums min-w-[32px] text-right">

@@ -1,11 +1,11 @@
 use rodio::{Decoder, OutputStream, Sink};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use std::collections::HashMap;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct AudioItem {
@@ -93,13 +93,13 @@ pub fn start_audio_engine() -> (mpsc::Sender<AudioCommand>, Arc<Mutex<PlaybackSt
         background_ids: Vec::new(),
         background_positions: HashMap::new(),
     }));
-    
+
     let state_clone = state.clone();
 
     thread::spawn(move || {
         let (_stream, stream_handle) = OutputStream::try_default().unwrap();
         let mut queue: Vec<AudioItem> = Vec::new();
-        
+
         let mut current_track: Option<ActiveTrack> = None;
         let mut background_tracks: Vec<ActiveTrack> = Vec::new();
 
@@ -120,11 +120,15 @@ pub fn start_audio_engine() -> (mpsc::Sender<AudioCommand>, Arc<Mutex<PlaybackSt
                                     let has_old_track = current_track.is_some();
                                     if let Some(mut old_track) = current_track.take() {
                                         old_track.play(); // Força o play caso estivesse pausada
-                                        old_track.fade_out_start_pos = Some(old_track.position.as_millis() as u64);
+                                        old_track.fade_out_start_pos =
+                                            Some(old_track.position.as_millis() as u64);
                                         background_tracks.push(old_track);
                                     }
-                                    
-                                    log_debug(&format!("Manually playing index: {}. Mix end: {:?}", idx, item.mix_end_ms));
+
+                                    log_debug(&format!(
+                                        "Manually playing index: {}. Mix end: {:?}",
+                                        idx, item.mix_end_ms
+                                    ));
 
                                     let sink = Sink::try_new(&stream_handle).unwrap();
                                     sink.append(decoder);
@@ -134,7 +138,7 @@ pub fn start_audio_engine() -> (mpsc::Sender<AudioCommand>, Arc<Mutex<PlaybackSt
                                         sink.set_volume(1.0);
                                     }
                                     sink.play();
-                                    
+
                                     current_track = Some(ActiveTrack {
                                         sink,
                                         item,
@@ -144,7 +148,11 @@ pub fn start_audio_engine() -> (mpsc::Sender<AudioCommand>, Arc<Mutex<PlaybackSt
                                         is_playing: true,
                                         mix_triggered: false,
                                         fade_out_start_pos: None,
-                                        fade_in_start_pos: if has_old_track { Some(0) } else { None },
+                                        fade_in_start_pos: if has_old_track {
+                                            Some(0)
+                                        } else {
+                                            None
+                                        },
                                     });
                                 }
                             }
@@ -203,26 +211,35 @@ pub fn start_audio_engine() -> (mpsc::Sender<AudioCommand>, Arc<Mutex<PlaybackSt
                 }
 
                 let dur_ms = track.item.duration_ms.unwrap_or(0);
-                
+
                 // Mix trigger logic
                 if !track.mix_triggered {
                     if let Some(mix_end) = track.item.mix_end_ms {
                         if mix_end > 0 && pos_ms >= mix_end {
-                            log_debug(&format!("Mix triggered by mix_end! pos_ms: {}, mix_end: {}", pos_ms, mix_end));
+                            log_debug(&format!(
+                                "Mix triggered by mix_end! pos_ms: {}, mix_end: {}",
+                                pos_ms, mix_end
+                            ));
                             track.mix_triggered = true;
                             auto_play_next = Some(track.index + 1);
                         }
                     } else if dur_ms > 0 && pos_ms >= dur_ms {
                         // Natural end fallback if duration reached
-                        log_debug(&format!("Mix triggered by dur_ms! pos_ms: {}, dur_ms: {}", pos_ms, dur_ms));
+                        log_debug(&format!(
+                            "Mix triggered by dur_ms! pos_ms: {}, dur_ms: {}",
+                            pos_ms, dur_ms
+                        ));
                         track.mix_triggered = true;
                         auto_play_next = Some(track.index + 1);
                     }
                 }
-                
+
                 // If it finished naturally
                 if track.sink.empty() && !track.mix_triggered {
-                    log_debug(&format!("Mix triggered by natural empty sink! pos_ms: {}", pos_ms));
+                    log_debug(&format!(
+                        "Mix triggered by natural empty sink! pos_ms: {}",
+                        pos_ms
+                    ));
                     track.mix_triggered = true;
                     auto_play_next = Some(track.index + 1);
                 }
@@ -249,14 +266,15 @@ pub fn start_audio_engine() -> (mpsc::Sender<AudioCommand>, Arc<Mutex<PlaybackSt
                         if let Ok(decoder) = Decoder::new(BufReader::new(file)) {
                             log_debug(&format!("Auto-playing next index: {}", next_idx));
                             if let Some(mut old_track) = current_track.take() {
-                                old_track.fade_out_start_pos = Some(old_track.position.as_millis() as u64);
+                                old_track.fade_out_start_pos =
+                                    Some(old_track.position.as_millis() as u64);
                                 background_tracks.push(old_track);
                             }
                             let sink = Sink::try_new(&stream_handle).unwrap();
                             sink.append(decoder);
                             sink.set_volume(0.0); // Start silent for fade in
                             sink.play();
-                            
+
                             current_track = Some(ActiveTrack {
                                 sink,
                                 item,
@@ -302,15 +320,25 @@ pub fn start_audio_engine() -> (mpsc::Sender<AudioCommand>, Arc<Mutex<PlaybackSt
             background_tracks.retain(|bt| {
                 let is_empty = bt.sink.empty();
                 if is_empty {
-                    log_debug(&format!("Background track index {} dropped because sink is empty. pos_ms: {}", bt.index, bt.position.as_millis()));
+                    log_debug(&format!(
+                        "Background track index {} dropped because sink is empty. pos_ms: {}",
+                        bt.index,
+                        bt.position.as_millis()
+                    ));
                 }
                 !is_empty
             });
 
             // Update background IDs in state
             if let Ok(mut st) = state_clone.lock() {
-                st.background_ids = background_tracks.iter().map(|bt| bt.item.id.clone()).collect();
-                st.background_positions = background_tracks.iter().map(|bt| (bt.item.id.clone(), bt.position.as_millis() as u64)).collect();
+                st.background_ids = background_tracks
+                    .iter()
+                    .map(|bt| bt.item.id.clone())
+                    .collect();
+                st.background_positions = background_tracks
+                    .iter()
+                    .map(|bt| (bt.item.id.clone(), bt.position.as_millis() as u64))
+                    .collect();
             }
 
             thread::sleep(Duration::from_millis(30));
@@ -322,7 +350,11 @@ pub fn start_audio_engine() -> (mpsc::Sender<AudioCommand>, Arc<Mutex<PlaybackSt
 
 fn log_debug(msg: &str) {
     use std::io::Write;
-    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open("debug_audio.log") {
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("debug_audio.log")
+    {
         let _ = writeln!(file, "{}", msg);
     }
 }

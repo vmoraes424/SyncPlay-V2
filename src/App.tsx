@@ -567,7 +567,7 @@ function App() {
       }
 
       if (e.code === "KeyT") {
-        const targetId = scheduledMusicId ?? playingId;
+        const targetId = playingId ?? scheduledMusicId;
         if (targetId) {
           e.preventDefault();
           scrollToPlaylistMusic(targetId);
@@ -694,7 +694,7 @@ function App() {
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
-      <div className="grid grid-cols-2 gap-8 p-8 h-screen max-w-[1600px] mx-auto">
+      <div className="grid grid-cols-2 p-8 h-screen max-w-[1600px] mx-auto">
 
         {/* COLUNA ESQUERDA (playlist) */}
         <div
@@ -746,6 +746,10 @@ function App() {
                                 const isCurrentlyPlaying = playingId === uniqueId;
                                 const isBackgroundPlaying = backgroundIds.includes(uniqueId);
                                 const scheduleStart = scheduleStarts[uniqueId];
+                                const isDisabled = legacyBool(music.disabled) ||
+                                  legacyBool(music.discarded) ||
+                                  legacyBool(music.manualDiscard ?? music.manual_discard) ||
+                                  scheduleStart?.active === false;
                                 return (
                                   <div
                                     key={musicKey}
@@ -762,6 +766,7 @@ function App() {
                                       isCurrentlyPlaying={isCurrentlyPlaying}
                                       isBackgroundPlaying={isBackgroundPlaying}
                                       isScheduledUpcoming={scheduledMusicId === uniqueId && !isCurrentlyPlaying && !isBackgroundPlaying}
+                                      isDisabled={isDisabled}
                                       isPlaying={isPlaying}
                                       currentTime={currentTime}
                                       duration={duration}
