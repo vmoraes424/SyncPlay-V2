@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 @import "tailwindcss";
 
 /* ─── Design tokens ────────────────────────────────────────────────────────── */
@@ -17,7 +17,7 @@
 /* Preflight do Tailwind; não duplicar * { margin/padding: 0 } sem @layer (anula utilitários). */
 
 body {
-  font-family: 'Outfit', sans-serif;
+  font-family: 'Inter', sans-serif;
   background-color: var(--bg-color);
   color: var(--text-primary);
   height: 100vh;
@@ -149,8 +149,6 @@ body {
   background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  position: sticky;
-  top: 0;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   padding: 1rem 0.5rem 0.75rem;

@@ -22,6 +22,7 @@ import type {
 } from './types';
 import { BlockHeader } from './components/BlockHeader';
 import { PlaylistMusicItem } from './components/PlaylistMusicItem';
+import { SettingsDock } from './components/settings/SettingsDock';
 import { formatSecondsOfDay } from './time';
 
 async function fetchConfigSafe<T>(filename: string): Promise<T | null> {
@@ -588,7 +589,7 @@ function App() {
       const element = playlistItemRefs.current[musicId];
       if (!element) return;
 
-      element.scrollIntoView({ behavior: "smooth", block: "center" });
+      element.scrollIntoView({ behavior: "smooth", block: "start" });
       element.classList.add("playlist-scroll-highlight");
       window.setTimeout(() => {
         element.classList.remove("playlist-scroll-highlight");
@@ -766,7 +767,7 @@ function App() {
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
-      <div className="grid grid-cols-2 h-screen">
+      <div className="grid grid-cols-2 h-[calc(100vh-50px)]">
 
         {/* COLUNA ESQUERDA (playlist) */}
         <div
@@ -1021,6 +1022,7 @@ function App() {
           </div>
         )}
       </DragOverlay>
+      <SettingsDock />
     </DndContext>
   );
 }

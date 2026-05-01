@@ -7,9 +7,14 @@ use schedule::{
     ScheduledMedia, SecondsOfDay,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::fs;
 use std::sync::{mpsc, Arc, Mutex};
-use tauri::State;
+use tauri::{Manager, PhysicalPosition, PhysicalSize, Runtime, State, WebviewWindow};
+
+const APP_SETTINGS_DIR: &str = "C:/SyncPlay/Configs";
+const APP_SETTINGS_PATH: &str = "C:/SyncPlay/Configs/configs.json";
+const WINDOW_STATE_PATH: &str = "C:/SyncPlay/Configs/window-state.json";
 
 #[derive(Serialize, Clone)]
 struct DirFileEntry {
@@ -170,6 +175,37 @@ fn local_seconds_of_day() -> SecondsOfDay {
     now.num_seconds_from_midnight()
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WindowStateFile {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    is_maximized: bool,
+    is_full_screen: bool,
+}
+
+fn apply_saved_window_state<R: Runtime>(win: &WebviewWindow<R>) {
+    let Ok(content) = fs::read_to_string(WINDOW_STATE_PATH) else {
+        return;
+    };
+    let Ok(state) = serde_json::from_str::<WindowStateFile>(&content) else {
+        return;
+    };
+
+    if state.is_full_screen {
+        let _ = win.set_fullscreen(true);
+        return;
+    }
+
+    let _ = win.set_size(PhysicalSize::new(state.width, state.height));
+    let _ = win.set_position(PhysicalPosition::new(state.x, state.y));
+    if state.is_maximized {
+        let _ = win.maximize();
+    }
+}
+
 #[tauri::command]
 fn read_playlist(date: &str) -> Result<String, String> {
     let path = format!("C:/SyncPlay/Playlists/{}.json", date);
@@ -188,6 +224,30 @@ fn read_config(filename: &str) -> Result<String, String> {
         return Ok(utf8_str);
     }
     Ok(bytes.into_iter().map(|b| b as char).collect())
+}
+
+#[tauri::command]
+fn read_app_settings() -> Result<Value, String> {
+    let content = match fs::read_to_string(APP_SETTINGS_PATH) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(serde_json::json!({}));
+        }
+        Err(error) => return Err(error.to_string()),
+    };
+
+    if content.trim().is_empty() {
+        return Ok(serde_json::json!({}));
+    }
+
+    serde_json::from_str(&content).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn write_app_settings(settings: Value) -> Result<(), String> {
+    fs::create_dir_all(APP_SETTINGS_DIR).map_err(|error| error.to_string())?;
+    let content = serde_json::to_string_pretty(&settings).map_err(|error| error.to_string())?;
+    fs::write(APP_SETTINGS_PATH, content).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -261,19 +321,7 @@ fn get_schedule_selection(blocks: Vec<ScheduledBlockDto>) -> Result<ScheduleSele
     let now_sec = local_seconds_of_day();
     let selection = select_music_from_blocks(&scheduled_blocks, now_sec, 120.0, "advanced");
 
-    eprintln!(
-        "[Schedule] get_schedule_selection now_sec={} blocks={} selection={:?}",
-        now_sec,
-        scheduled_blocks.len(),
-        selection
-    );
-
     Ok(selection.into())
-}
-
-#[tauri::command]
-fn debug_schedule_log(message: String) {
-    eprintln!("[Schedule:UI] {}", message);
 }
 
 #[tauri::command]
@@ -321,10 +369,19 @@ pub fn run() {
             tx: Mutex::new(tx),
             playback,
         })
+        .setup(|app| {
+            if let Some(win) = app.get_webview_window("main") {
+                apply_saved_window_state(&win);
+                let _ = win.show();
+            }
+            Ok(())
+        })
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             read_playlist,
             read_config,
+            read_app_settings,
+            write_app_settings,
             set_queue,
             play_index,
             pause_audio,
@@ -333,7 +390,6 @@ pub fn run() {
             skip_with_fade,
             get_playback_state,
             get_schedule_selection,
-            debug_schedule_log,
             list_directories
         ])
         .run(tauri::generate_context!())

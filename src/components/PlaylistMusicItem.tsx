@@ -1,6 +1,7 @@
 import type { Music } from '../types';
 
 import proximaBcoImg from '../assets/proxima_bco.png';
+import { invoke } from '@tauri-apps/api/core';
 
 // ─── Gradientes e bordas por tipo de mídia ────────────────────────────────────
 
@@ -102,7 +103,7 @@ export function PlaylistMusicItem({
           ? 'border-violet-500/25'
           : isScheduledUpcoming
             ? 'playlist-item--scheduled-upcoming'
-            :'bg-white/[0.025] border-white/[0.06]',
+            : 'bg-white/[0.025] border-white/[0.06]',
   ].join(' ');
 
   const itemStyle: React.CSSProperties = {
@@ -170,10 +171,10 @@ export function PlaylistMusicItem({
           <div className="flex flex-col gap-1">
             {artist ? (
               <>
-                <span className="text-smfont-semibold text-white leading-snug truncate underline cursor-pointer" title={artist}>
+                <span className="text-xs font-bold text-white leading-snug truncate underline cursor-pointer" title={artist}>
                   {artist}
                 </span>
-                <span className="text-sm font-medium text-white leading-snug truncate" title={track}>
+                <span className="text-xs font-bold text-white leading-snug truncate" title={track}>
                   {track}
                 </span>
               </>
@@ -204,12 +205,14 @@ export function PlaylistMusicItem({
           />
         </div>
 
-        <div className="shrink-0 flex flex-col items-center justify-center gap-0.5 min-w-0 w-[20%]">
-          <span className="text-xl text-slate-300 tabular-nums font-semibold tracking-tight">
+        <div className="shrink-0 flex flex-col items-center justify-center gap-1 min-w-0 w-[20%]">
+          <span className="text-md text-white font-black">
             {formatTimeRemaining(remainingSec)}
           </span>
-          <img src={proximaBcoImg} alt="" className="w-10 h-10 rotate-90" />
-          <div className='flex gap-3'>
+          <img src={proximaBcoImg} alt="" onClick={() => {
+            invoke("skip_with_fade").catch(console.error);
+          }} className="w-10 h-10 rotate-90" />
+          <div className='flex gap-3 mt-1'>
             {mixLabel && <span className="playlist-music-mix-label">{mixLabel}</span>}
             {startLabel && (
               <span className="playlist-music-start-time" title="Horário previsto da mídia">
