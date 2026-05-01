@@ -40,13 +40,6 @@ function formatTime(seconds: number) {
   return `${m}:${s < 10 ? "0" : ""}${s}`;
 }
 
-function scheduleDebug(message: string, details?: unknown) {
-  const suffix = details === undefined ? "" : ` ${JSON.stringify(details)}`;
-  const line = `${message}${suffix}`;
-  console.info(`[Schedule] ${line}`);
-  invoke("debug_schedule_log", { message: line }).catch(() => undefined);
-}
-
 /**
  * Insere uma nova Music no bloco indicado.
  * Se beforeKey === null → append ao final do bloco.
@@ -511,26 +504,10 @@ function App() {
   };
 
   const scrollToPlaylistMusic = useCallback((musicId: string) => {
-    scheduleDebug("scroll requested", {
-      musicId,
-      registeredRefs: Object.keys(playlistItemRefs.current).length,
-    });
-
     window.requestAnimationFrame(() => {
       const element = playlistItemRefs.current[musicId];
-      if (!element) {
-        scheduleDebug("scroll target not found", {
-          musicId,
-          registeredRefs: Object.keys(playlistItemRefs.current).slice(0, 10),
-        });
-        return;
-      }
+      if (!element) return;
 
-      scheduleDebug("scroll target found", {
-        musicId,
-        top: element.offsetTop,
-        text: element.innerText.slice(0, 120),
-      });
       element.scrollIntoView({ behavior: "smooth", block: "center" });
       element.classList.add("playlist-scroll-highlight");
       window.setTimeout(() => {
@@ -583,7 +560,6 @@ function App() {
 
       if (e.code === "KeyT") {
         const targetId = scheduledMusicId ?? playingId;
-        scheduleDebug("KeyT pressed", { scheduledMusicId, playingId, targetId });
         if (targetId) {
           e.preventDefault();
           scrollToPlaylistMusic(targetId);
@@ -598,12 +574,6 @@ function App() {
     if (!data) return;
 
     const { playableItems, scheduledBlocks } = buildPlaylistRuntimeItems(data);
-    scheduleDebug("playlist runtime items built", {
-      playableItems: playableItems.length,
-      scheduledBlocks: scheduledBlocks.length,
-      firstScheduledBlock: scheduledBlocks[0] ?? null,
-      lastScheduledBlock: scheduledBlocks[scheduledBlocks.length - 1] ?? null,
-    });
     let cancelled = false;
 
     const clearScheduleTimer = () => {
@@ -620,7 +590,6 @@ function App() {
         if (scheduledBlocks.length === 0) {
           playableItemsRef.current = playableItems;
           await invoke("set_queue", { items: playableItems });
-          scheduleDebug("no scheduled blocks available");
           if (!cancelled) setScheduledMusicId(null);
           return;
         }
@@ -630,47 +599,30 @@ function App() {
         });
         if (cancelled) return;
 
-        scheduleDebug("schedule selection received", selection);
-
         const activeIds = new Set(selection.activeQueueIds);
         const effectiveQueue = selection.activeQueueIds.length > 0
           ? playableItems.filter(item => activeIds.has(item.id))
           : playableItems;
         playableItemsRef.current = effectiveQueue;
         await invoke("set_queue", { items: effectiveQueue });
-        scheduleDebug("queue sent to backend", {
-          playableItems: effectiveQueue.length,
-          discardedBySchedule: playableItems.length - effectiveQueue.length,
-        });
 
         if (selection.type === "active") {
           setScheduledMusicId(selection.musicId);
           scrollToPlaylistMusic(selection.musicId);
           const index = effectiveQueue.findIndex(item => item.id === selection.musicId);
-          scheduleDebug("active selection mapped to queue", {
-            musicId: selection.musicId,
-            index,
-            elapsedSec: selection.elapsedSec,
-          });
           if (index !== -1) {
             await invoke("play_index", { index });
           }
         } else if (selection.type === "upcoming") {
           setScheduledMusicId(selection.musicId);
           scrollToPlaylistMusic(selection.musicId);
-          scheduleDebug("upcoming selection timer scheduled", {
-            musicId: selection.musicId,
-            startsInSec: selection.startsInSec,
-          });
           scheduleTimerRef.current = window.setTimeout(() => {
             void applyScheduleSelection();
           }, Math.max(0, selection.startsInSec * 1000));
         } else {
-          scheduleDebug("empty schedule selection");
           setScheduledMusicId(null);
         }
       } catch (e) {
-        scheduleDebug("schedule flow error", String(e));
         console.error(e);
       }
     }
