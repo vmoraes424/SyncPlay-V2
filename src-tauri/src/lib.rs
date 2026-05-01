@@ -226,8 +226,7 @@ fn read_config(filename: &str) -> Result<String, String> {
     Ok(bytes.into_iter().map(|b| b as char).collect())
 }
 
-#[tauri::command]
-fn read_app_settings() -> Result<Value, String> {
+fn load_app_settings_from_disk() -> Result<Value, String> {
     let content = match fs::read_to_string(APP_SETTINGS_PATH) {
         Ok(content) => content,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -241,6 +240,18 @@ fn read_app_settings() -> Result<Value, String> {
     }
 
     serde_json::from_str(&content).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn read_app_settings() -> Result<Value, String> {
+    load_app_settings_from_disk()
+}
+
+/// Retorna o valor de uma chave de topo em `configs.json` (`null` se ausente).
+#[tauri::command]
+fn get_app_setting(key: String) -> Result<Value, String> {
+    let root = load_app_settings_from_disk()?;
+    Ok(root.get(&key).cloned().unwrap_or(Value::Null))
 }
 
 #[tauri::command]
@@ -381,6 +392,7 @@ pub fn run() {
             read_playlist,
             read_config,
             read_app_settings,
+            get_app_setting,
             write_app_settings,
             set_queue,
             play_index,

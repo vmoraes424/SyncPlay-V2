@@ -23,6 +23,7 @@ import type {
 import { BlockHeader } from './components/BlockHeader';
 import { PlaylistMusicItem } from './components/PlaylistMusicItem';
 import { SettingsDock } from './components/settings/SettingsDock';
+import { getAppSetting } from './settings/settingsStorage';
 import { formatSecondsOfDay } from './time';
 
 async function fetchConfigSafe<T>(filename: string): Promise<T | null> {
@@ -41,10 +42,23 @@ function formatTime(seconds: number) {
   return `${m}:${s < 10 ? "0" : ""}${s}`;
 }
 
-const PLAYLIST_BLOCK_WINDOW = {
-  before: 2,
-  after: 2,
-};
+interface PlaylistBlockWindow {
+  before: number;
+  after: number;
+}
+
+const DEFAULT_PLAYLIST_BLOCK_WINDOW: PlaylistBlockWindow = { before: 2, after: 2 };
+
+function parsePositiveIntSetting(value: unknown, fallback: number): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(0, Math.floor(value));
+  }
+  if (typeof value === 'string') {
+    const n = parseInt(value.trim(), 10);
+    if (!Number.isNaN(n)) return Math.max(0, n);
+  }
+  return fallback;
+}
 
 /**
  * Insere uma nova Music no bloco indicado.
@@ -240,8 +254,6 @@ function getBlockDisplayStart(blockStart: number | undefined, musicEntries: Arra
   )?.[1].start;
 }
 
-type PlaylistBlockWindow = typeof PLAYLIST_BLOCK_WINDOW;
-
 interface VisiblePlaylistGroup {
   plKey: string;
   pl: SyncPlayData['playlists'][string];
@@ -415,6 +427,32 @@ function App() {
 
   const parentRef = useRef<HTMLDivElement>(null);
 
+  const [playlistBlockWindow, setPlaylistBlockWindow] = useState<PlaylistBlockWindow>(
+    DEFAULT_PLAYLIST_BLOCK_WINDOW
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [loadRaw, keepRaw] = await Promise.all([
+          getAppSetting('loadBlocks'),
+          getAppSetting('keepBlocks'),
+        ]);
+        if (cancelled) return;
+        setPlaylistBlockWindow({
+          before: parsePositiveIntSetting(loadRaw, DEFAULT_PLAYLIST_BLOCK_WINDOW.before),
+          after: parsePositiveIntSetting(keepRaw, DEFAULT_PLAYLIST_BLOCK_WINDOW.after),
+        });
+      } catch {
+        /* mantém DEFAULT_PLAYLIST_BLOCK_WINDOW */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const rowVirtualizer = useVirtualizer({
     count: filteredFiles.length,
     getScrollElement: () => parentRef.current,
@@ -424,9 +462,9 @@ function App() {
 
   const visiblePlaylistGroups = useMemo(
     () => data
-      ? buildVisiblePlaylistGroups(data, playingId ?? scheduledMusicId, PLAYLIST_BLOCK_WINDOW)
+      ? buildVisiblePlaylistGroups(data, playingId ?? scheduledMusicId, playlistBlockWindow)
       : [],
-    [data, playingId, scheduledMusicId]
+    [data, playingId, scheduledMusicId, playlistBlockWindow]
   );
 
   const loadDirectories = useCallback(async (paths: string[]) => {
