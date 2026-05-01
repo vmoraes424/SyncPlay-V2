@@ -7,6 +7,10 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+/// Crossfade ao trocar faixa manualmente (play / tecla): saída da anterior e entrada da nova.
+const MANUAL_CROSSFADE_OUT_MS: u64 = 3000;
+const MANUAL_CROSSFADE_IN_MS: u64 = 1500;
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct AudioItem {
     pub id: String,
@@ -46,6 +50,10 @@ struct ActiveTrack {
     mix_triggered: bool,
     fade_out_start_pos: Option<u64>,
     fade_in_start_pos: Option<u64>,
+    /// Sobrescreve `item.fade_duration_ms` no fade-in (ex.: troca manual).
+    fade_in_duration_ms: Option<u64>,
+    /// Sobrescreve `item.fade_duration_ms` no fade-out em background (ex.: troca manual).
+    fade_out_duration_ms: Option<u64>,
 }
 
 impl ActiveTrack {
@@ -125,6 +133,8 @@ pub fn start_audio_engine() -> (mpsc::Sender<AudioCommand>, Arc<Mutex<PlaybackSt
                                         if crossfade_from_previous {
                                             old_track.fade_out_start_pos =
                                                 Some(old_track.position.as_millis() as u64);
+                                            old_track.fade_out_duration_ms =
+                                                Some(MANUAL_CROSSFADE_OUT_MS);
                                             background_tracks.push(old_track);
                                         } else {
                                             old_track.sink.stop();
@@ -132,8 +142,8 @@ pub fn start_audio_engine() -> (mpsc::Sender<AudioCommand>, Arc<Mutex<PlaybackSt
                                     }
 
                                     log_debug(&format!(
-                                        "Manually playing index: {}. Mix end: {:?}",
-                                        idx, item.mix_end_ms
+                                        "Manually playing index: {}. manual_crossfade: {}",
+                                        idx, crossfade_from_previous
                                     ));
 
                                     let sink = Sink::try_new(&stream_handle).unwrap();
@@ -159,6 +169,12 @@ pub fn start_audio_engine() -> (mpsc::Sender<AudioCommand>, Arc<Mutex<PlaybackSt
                                         } else {
                                             None
                                         },
+                                        fade_in_duration_ms: if crossfade_from_previous {
+                                            Some(MANUAL_CROSSFADE_IN_MS)
+                                        } else {
+                                            None
+                                        },
+                                        fade_out_duration_ms: None,
                                     });
                                 }
                             }
@@ -205,7 +221,10 @@ pub fn start_audio_engine() -> (mpsc::Sender<AudioCommand>, Arc<Mutex<PlaybackSt
 
                 // Process Fade In
                 if let Some(start_pos) = track.fade_in_start_pos {
-                    let fade_dur = track.item.fade_duration_ms.unwrap_or(2000);
+                    let fade_dur = track
+                        .fade_in_duration_ms
+                        .or(track.item.fade_duration_ms)
+                        .unwrap_or(2000);
                     let elapsed = pos_ms.saturating_sub(start_pos);
                     if fade_dur > 0 && elapsed < fade_dur {
                         let volume = elapsed as f32 / fade_dur as f32;
@@ -291,6 +310,8 @@ pub fn start_audio_engine() -> (mpsc::Sender<AudioCommand>, Arc<Mutex<PlaybackSt
                                 mix_triggered: false,
                                 fade_out_start_pos: None,
                                 fade_in_start_pos: Some(0), // Trigger fade in
+                                fade_in_duration_ms: None,
+                                fade_out_duration_ms: None,
                             });
                         }
                     }
@@ -312,7 +333,10 @@ pub fn start_audio_engine() -> (mpsc::Sender<AudioCommand>, Arc<Mutex<PlaybackSt
 
                 // Process Fade Out
                 if let Some(start_pos) = bt.fade_out_start_pos {
-                    let fade_dur = bt.item.fade_duration_ms.unwrap_or(2000);
+                    let fade_dur = bt
+                        .fade_out_duration_ms
+                        .or(bt.item.fade_duration_ms)
+                        .unwrap_or(2000);
                     let elapsed = pos_ms.saturating_sub(start_pos);
                     if fade_dur > 0 && elapsed < fade_dur {
                         let volume = 1.0 - (elapsed as f32 / fade_dur as f32);
