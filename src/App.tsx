@@ -562,7 +562,7 @@ function App() {
 
   const fetchPlaylist = async () => {
     try {
-      const jsonStr: string = await invoke("read_playlist", { date: "2026-04-30" });
+      const jsonStr: string = await invoke("read_playlist", { date: new Date().toISOString().split('T')[0] });
       setData(JSON.parse(jsonStr));
     } catch (err) {
       setError(`Erro ao carregar a playlist: ${err}`); setData(null);
@@ -654,11 +654,6 @@ function App() {
           });
           if (index !== -1) {
             await invoke("play_index", { index });
-            if (selection.elapsedSec > 0) {
-              await invoke("seek_audio", {
-                positionMs: Math.floor(selection.elapsedSec * 1000),
-              });
-            }
           }
         } else if (selection.type === "upcoming") {
           setScheduledMusicId(selection.musicId);
