@@ -96,6 +96,41 @@ function insertMusic(
   };
 }
 
+/**
+ * Remove uma mídia do bloco (mesma convenção que `blockMediaRecord`: prioriza `commercials` se não vazio).
+ */
+function removeMusicFromBlock(
+  data: SyncPlayData,
+  plKey: string,
+  blockKey: string,
+  musicKey: string
+): SyncPlayData | null {
+  const block = data.playlists[plKey]?.blocks[blockKey];
+  if (!block) return null;
+  const useCommercials =
+    block.commercials != null && Object.keys(block.commercials).length > 0;
+  const record = useCommercials ? block.commercials! : block.musics ?? {};
+  if (!(musicKey in record)) return null;
+  const { [musicKey]: _removed, ...rest } = record;
+  const nextBlock = useCommercials
+    ? { ...block, commercials: rest }
+    : { ...block, musics: rest };
+
+  return {
+    ...data,
+    playlists: {
+      ...data.playlists,
+      [plKey]: {
+        ...data.playlists[plKey],
+        blocks: {
+          ...data.playlists[plKey].blocks,
+          [blockKey]: nextBlock,
+        },
+      },
+    },
+  };
+}
+
 function numericStart(value: number | undefined) {
   return typeof value === 'number' && Number.isFinite(value) ? value : Number.MAX_SAFE_INTEGER;
 }
@@ -338,9 +373,17 @@ function App() {
   const [duration, setDuration] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [scheduledMusicId, setScheduledMusicId] = useState<string | null>(null);
+  const [trashHighlightPlaylistId, setTrashHighlightPlaylistId] = useState<string | null>(null);
   const [scheduleStarts, setScheduleStarts] = useState<Record<string, ScheduleMediaStartDto>>({});
+
+  useEffect(() => {
+    if (playingId == null) return;
+    setTrashHighlightPlaylistId((prev) => (prev === playingId ? null : prev));
+  }, [playingId]);
+
   const playableItemsRef = useRef<PlayableItem[]>([]);
   const scheduleTimerRef = useRef<number | null>(null);
+  const scheduleScrollKeyRef = useRef<string | null>(null);
   const playlistItemRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   // DnD
@@ -672,6 +715,7 @@ function App() {
           playableItemsRef.current = playableItems;
           await invoke("set_queue", { items: playableItems });
           if (!cancelled) {
+            scheduleScrollKeyRef.current = null;
             setScheduledMusicId(null);
             setScheduleStarts({});
           }
@@ -692,25 +736,37 @@ function App() {
         playableItemsRef.current = effectiveQueue;
         await invoke("set_queue", { items: effectiveQueue });
 
+        const scrollIfScheduleTargetChanged = (kind: string, musicId: string) => {
+          const key = `${kind}:${musicId}`;
+          if (scheduleScrollKeyRef.current === key) return;
+          scheduleScrollKeyRef.current = key;
+          scrollToPlaylistMusic(musicId);
+        };
+
         if (selection.type === "active") {
           setScheduledMusicId(selection.musicId);
-          scrollToPlaylistMusic(selection.musicId);
+          scrollIfScheduleTargetChanged("active", selection.musicId);
           const index = effectiveQueue.findIndex(item => item.id === selection.musicId);
           if (index !== -1) {
-            await invoke("play_index", { index });
-            if (selection.elapsedSec > 0) {
-              await invoke("seek_audio", {
-                positionMs: Math.floor(selection.elapsedSec * 1000),
-              });
+            const playback = await invoke<{ current_id?: string | null }>("get_playback_state");
+            const alreadyThisTrack = playback.current_id === selection.musicId;
+            if (!alreadyThisTrack) {
+              await invoke("play_index", { index });
+              if (selection.elapsedSec > 0) {
+                await invoke("seek_audio", {
+                  positionMs: Math.floor(selection.elapsedSec * 1000),
+                });
+              }
             }
           }
         } else if (selection.type === "upcoming") {
           setScheduledMusicId(selection.musicId);
-          scrollToPlaylistMusic(selection.musicId);
+          scrollIfScheduleTargetChanged("upcoming", selection.musicId);
           scheduleTimerRef.current = window.setTimeout(() => {
             void applyScheduleSelection();
           }, Math.max(0, selection.startsInSec * 1000));
         } else {
+          scheduleScrollKeyRef.current = null;
           setScheduledMusicId(null);
         }
       } catch (e) {
@@ -845,6 +901,26 @@ function App() {
                                       backgroundPosition={backgroundPositions[uniqueId] ?? 0}
                                       onPlay={() => togglePlay(uniqueId)}
                                       onSeek={handleSeek}
+                                      showTrashSkipIcon={trashHighlightPlaylistId === uniqueId}
+                                      onPlaylistItemSelect={() =>
+                                        setTrashHighlightPlaylistId((prev) =>
+                                          prev === uniqueId ? null : uniqueId
+                                        )
+                                      }
+                                      onTrashRemove={
+                                        trashHighlightPlaylistId === uniqueId
+                                          ? () => {
+                                              setTrashHighlightPlaylistId(null);
+                                              setData((prev) => {
+                                                if (!prev) return prev;
+                                                return (
+                                                  removeMusicFromBlock(prev, plKey, blockKey, musicKey) ??
+                                                  prev
+                                                );
+                                              });
+                                            }
+                                          : undefined
+                                      }
                                     />
                                   </div>
                                 );

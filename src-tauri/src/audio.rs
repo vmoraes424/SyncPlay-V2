@@ -119,6 +119,21 @@ pub fn start_audio_engine() -> (mpsc::Sender<AudioCommand>, Arc<Mutex<PlaybackSt
                 match cmd {
                     AudioCommand::SetQueue(new_queue) => {
                         queue = new_queue;
+                        // Realinha índices após editar a fila (inserir/remover itens), sem recriar o sink.
+                        if let Some(track) = &mut current_track {
+                            if let Some(new_idx) =
+                                queue.iter().position(|i| i.id == track.item.id)
+                            {
+                                track.index = new_idx;
+                            }
+                        }
+                        for bt in &mut background_tracks {
+                            if let Some(new_idx) =
+                                queue.iter().position(|i| i.id == bt.item.id)
+                            {
+                                bt.index = new_idx;
+                            }
+                        }
                     }
                     AudioCommand::PlayIndex(idx) => {
                         if idx < queue.len() {

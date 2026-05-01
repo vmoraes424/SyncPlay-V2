@@ -6,13 +6,10 @@
   z-index: 80;
   display: flex;
   align-items: center;
-  height: 50px;
+  height: 40px;
   padding: 0 14px;
-  border-top: 1px solid var(--glass-border);
-  background: rgba(15, 23, 42, 0.92);
-  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.28);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  border-top: 1px solid #353535;
+  background: #262626;
 }
 
 .settings-taskbar__button:hover {

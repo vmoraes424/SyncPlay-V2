@@ -1,6 +1,7 @@
 import type { Music } from '../types';
 
 import proximaBcoImg from '../assets/proxima_bco.png';
+import lixeiraImg from '../assets/lixeira.png';
 import { invoke } from '@tauri-apps/api/core';
 
 // ─── Gradientes e bordas por tipo de mídia ────────────────────────────────────
@@ -69,6 +70,12 @@ interface PlaylistMusicItemProps {
   backgroundPosition: number; // posição em ms
   onPlay: () => void;
   onSeek: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  /** Quando true, o ícone à direita é a lixeira em vez do skip. */
+  showTrashSkipIcon?: boolean;
+  /** Clique na mídia (área do item, exceto play/slider/ícone skip) alterna a lixeira neste item. */
+  onPlaylistItemSelect?: () => void;
+  /** Com lixeira visível: remove o item da playlist em memória (não grava arquivo). */
+  onTrashRemove?: () => void;
 }
 
 // ─── Componente ───────────────────────────────────────────────────────────────
@@ -86,15 +93,23 @@ export function PlaylistMusicItem({
   backgroundPosition,
   onPlay,
   onSeek,
+  showTrashSkipIcon = false,
+  onPlaylistItemSelect,
+  onTrashRemove,
 }: PlaylistMusicItemProps) {
   const rawTitle = music.text || `Mídia: ${music.type}`;
   const { artist, track } = splitArtistTitle(rawTitle);
+
+  /** Lixeira só em itens que não são a linha atualmente tocando (principal). */
+  const trashHighlighted =
+    Boolean(showTrashSkipIcon && !isCurrentlyPlaying && !isDisabled);
 
   const itemBg = TYPE_BG[music.type ?? ''];
   const itemBorderColor = TYPE_BORDER[music.type ?? ''];
 
   const itemClass = [
     'playlist-music-item flex flex-col rounded-md transition-all duration-200 border mx-2 px-3 py-2',
+    trashHighlighted ? 'playlist-music-item--trash-selected' : '',
     isDisabled
       ? 'bg-slate-950/35 border-slate-500/20 border-dashed opacity-45 grayscale saturate-0'
       : isCurrentlyPlaying
@@ -104,11 +119,15 @@ export function PlaylistMusicItem({
           : isScheduledUpcoming
             ? 'playlist-item--scheduled-upcoming'
             : 'bg-white/[0.025] border-white/[0.06]',
-  ].join(' ');
+  ].filter(Boolean).join(' ');
 
   const itemStyle: React.CSSProperties = {
     ...(itemBg && !isDisabled ? { background: itemBg } : {}),
-    ...(itemBorderColor && !isDisabled && !isCurrentlyPlaying && !isBackgroundPlaying
+    ...(itemBorderColor &&
+    !isDisabled &&
+    !isCurrentlyPlaying &&
+    !isBackgroundPlaying &&
+    !trashHighlighted
       ? { borderColor: itemBorderColor }
       : {}),
   };
@@ -141,8 +160,26 @@ export function PlaylistMusicItem({
   const mixSec = getMixDurationSec(music, displayDuration);
   const mixLabel = mixSec !== null ? formatMixLabel(mixSec) : null;
 
+  function handlePlaylistItemSurfaceClick(e: React.MouseEvent) {
+    if (!onPlaylistItemSelect || isCurrentlyPlaying || isDisabled) return;
+    const el = e.target as HTMLElement;
+    if (el.closest('button')) return;
+    if (el.closest('input')) return;
+    if (el.closest('[data-skip-trash-zone]')) return;
+    onPlaylistItemSelect();
+  }
+
   return (
-    <div className={itemClass} style={itemStyle} title={isDisabled ? 'Mídia descartada/desabilitada' : undefined}>
+    <div
+      className={itemClass}
+      style={itemStyle}
+      title={isDisabled ? 'Mídia descartada/desabilitada' : undefined}
+      onClick={
+        onPlaylistItemSelect && !isDisabled && !isCurrentlyPlaying
+          ? handlePlaylistItemSurfaceClick
+          : undefined
+      }
+    >
       {/* Linha 1: play | artista/música | tempos */}
       <div className="flex flex-row gap-3 items-start w-full min-w-0 h-full">
         <div className="w-8 shrink-0 flex justify-center items-start pt-0.5">
@@ -209,9 +246,20 @@ export function PlaylistMusicItem({
           <span className="text-md text-white font-black">
             {formatTimeRemaining(remainingSec)}
           </span>
-          <img src={proximaBcoImg} alt="" onClick={() => {
-            invoke("skip_with_fade").catch(console.error);
-          }} className="w-10 h-10 rotate-90" />
+          <img
+            src={trashHighlighted ? lixeiraImg : proximaBcoImg}
+            alt=""
+            data-skip-trash-zone
+            onClick={(ev) => {
+              ev.stopPropagation();
+              if (trashHighlighted && onTrashRemove) {
+                onTrashRemove();
+                return;
+              }
+              invoke("skip_with_fade").catch(console.error);
+            }}
+            className="w-10 h-10 rotate-90 cursor-pointer"
+          />
           <div className='flex gap-3 mt-1'>
             {mixLabel && <span className="playlist-music-mix-label">{mixLabel}</span>}
             {startLabel && (
