@@ -15,79 +15,14 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import "./App.css";
-
-// ─── Tipos ───────────────────────────────────────────────────────────────────
-
-type MediaCategory = 'unset' | 'musics' | 'medias' | 'others';
-type DirectoryOptionKind = 'sync' | 'manual' | 'collection' | 'streaming';
-
-type DirectoryOption = {
-  value: string;
-  label: string;
-  kind: DirectoryOptionKind;
-};
-
-interface DirFile {
-  name: string;
-  path: string;
-  size_bytes: number;
-}
-
-interface MixData {
-  mix_init?: number;
-  mix_end?: number;
-  duration_real?: number;
-  duration_total?: number;
-  mix_total_milesecond?: number;
-}
-
-interface ExtraData {
-  mix?: MixData;
-}
-
-interface Music {
-  text?: string;
-  type?: string;
-  id?: number;
-  start?: number;
-  duration?: number;
-  path?: string;
-  extra?: ExtraData;
-}
-
-interface Block {
-  type: string;
-  musics?: Record<string, Music>;
-}
-
-interface Playlist {
-  program: string;
-  blocks: Record<string, Block>;
-}
-
-interface SyncPlayData {
-  playlists: Record<string, Playlist>;
-}
-
-interface PlayableItem {
-  id: string;
-  path: string;
-  mix_end_ms: number | null;
-  duration_ms: number | null;
-  fade_duration_ms: number | null;
-}
-
-// ─── Tipos de linha achatada (playlist virtualizer) ───────────────────────────
-
-type FlatRowKind =
-  | { kind: 'pl-header'; plKey: string; label: string }
-  | { kind: 'block-header'; plKey: string; blockKey: string; blockType: string }
-  | { kind: 'slot-before'; plKey: string; blockKey: string; musicKey: string }
-  | { kind: 'music'; plKey: string; blockKey: string; musicKey: string; music: Music }
-  | { kind: 'slot-end'; plKey: string; blockKey: string }
-  | { kind: 'block-empty'; plKey: string; blockKey: string };
-
-// ─── Utilitários ─────────────────────────────────────────────────────────────
+import type {
+  MediaCategory, DirectoryOptionKind, DirectoryOption,
+  DirFile, Music, SyncPlayData,
+  PlayableItem, ScheduledBlockDto, ScheduleSelectionDto,
+} from './types';
+import { BlockHeader } from './components/BlockHeader';
+import { PlaylistMusicItem } from './components/PlaylistMusicItem';
+import { formatSecondsOfDay } from './time';
 
 async function fetchConfigSafe<T>(filename: string): Promise<T | null> {
   try {
@@ -103,6 +38,13 @@ function formatTime(seconds: number) {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${m}:${s < 10 ? "0" : ""}${s}`;
+}
+
+function scheduleDebug(message: string, details?: unknown) {
+  const suffix = details === undefined ? "" : ` ${JSON.stringify(details)}`;
+  const line = `${message}${suffix}`;
+  console.info(`[Schedule] ${line}`);
+  invoke("debug_schedule_log", { message: line }).catch(() => undefined);
 }
 
 /**
@@ -148,7 +90,100 @@ function insertMusic(
   };
 }
 
-// ─── DroppableSlot ────────────────────────────────────────────────────────────
+function numericStart(value: number | undefined) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : Number.MAX_SAFE_INTEGER;
+}
+
+function orderedPlaylistEntries(data: SyncPlayData) {
+  return Object.entries(data.playlists).sort(([, a], [, b]) => numericStart(a.start) - numericStart(b.start));
+}
+
+function orderedBlockEntries(blocks: SyncPlayData['playlists'][string]['blocks']) {
+  return Object.entries(blocks).sort(([, a], [, b]) => numericStart(a.start) - numericStart(b.start));
+}
+
+function legacyBool(value: unknown) {
+  return value === true || value === 1 || value === '1';
+}
+
+function mediaDurationMs(music: Music) {
+  if (music.extra?.mix?.duration_real) return music.extra.mix.duration_real;
+  if (music.extra?.mix?.duration_total) return music.extra.mix.duration_total;
+  return typeof music.duration === 'number' && Number.isFinite(music.duration)
+    ? music.duration * 1000
+    : null;
+}
+
+function mediaMixOutMs(music: Music) {
+  return music.extra?.mix?.mix_total_milesecond ?? null;
+}
+
+function buildPlaylistRuntimeItems(data: SyncPlayData) {
+  const playableItems: PlayableItem[] = [];
+  const scheduledBlocks: ScheduledBlockDto[] = [];
+
+  orderedPlaylistEntries(data).forEach(([plKey, pl]) =>
+    orderedBlockEntries(pl.blocks).forEach(([blockKey, block]) => {
+      if (!block.musics) return;
+
+      const medias = Object.entries(block.musics).map(([musicKey, music]) => {
+        const uniqueId = `${plKey}-${blockKey}-${musicKey}`;
+        const duration_ms = mediaDurationMs(music);
+        const fade_duration_ms = mediaMixOutMs(music);
+
+        if (music.path) {
+          playableItems.push({
+            id: uniqueId,
+            path: music.path,
+            mix_end_ms: music.extra?.mix?.mix_end ?? null,
+            duration_ms,
+            fade_duration_ms,
+          });
+        }
+
+        return {
+          id: uniqueId,
+          title: music.text || `Mídia: ${music.type ?? musicKey}`,
+          mediaType: music.type ?? '',
+          path: music.path ?? '',
+          durationSec: duration_ms !== null ? duration_ms / 1000 : music.duration ?? null,
+          mixOutSec: fade_duration_ms !== null ? fade_duration_ms / 1000 : null,
+          disabled: legacyBool(music.disabled),
+          discarded: legacyBool(music.discarded),
+          manualDiscard: legacyBool(music.manualDiscard ?? music.manual_discard),
+          fixed: legacyBool(music.extra?.fixed),
+          manualType: legacyBool(music.manualType ?? music.manual_type),
+          disableDiscard: legacyBool(music.disableDiscard ?? music.disable_discard),
+        };
+      });
+
+      if (
+        typeof block.start === 'number' && Number.isFinite(block.start) &&
+        typeof block.duration === 'number' && Number.isFinite(block.duration)
+      ) {
+        scheduledBlocks.push({
+          id: `${plKey}-${blockKey}`,
+          startSec: Math.floor(block.start),
+          sizeSec: Math.floor(block.size ?? block.duration),
+          disableDiscard: legacyBool(block.disableDiscard ?? block.disable_discard),
+          medias,
+        });
+      }
+    })
+  );
+
+  return { playableItems, scheduledBlocks };
+}
+
+function getBlockDisplayStart(blockStart: number | undefined, musicEntries: Array<[string, Music]>) {
+  if (typeof blockStart === 'number' && Number.isFinite(blockStart)) return blockStart;
+
+  return musicEntries.find(([, music]) =>
+    typeof music.start === 'number' && Number.isFinite(music.start)
+  )?.[1].start;
+}
+
+// --- DroppableSlot ---
 // Linha fina entre os itens da playlist — torna-se o target do drop.
 
 function DroppableSlot({ id }: { id: string }) {
@@ -156,7 +191,7 @@ function DroppableSlot({ id }: { id: string }) {
   return <div ref={setNodeRef} className={`drop-slot${isOver ? " drop-slot-active" : ""}`} />;
 }
 
-// ─── DraggableMidiaItem ───────────────────────────────────────────────────────
+// --- DraggableMidiaItem ---
 
 interface DraggableMidiaProps {
   file: DirFile;
@@ -223,7 +258,7 @@ function DraggableMidiaItem({
   );
 }
 
-// ─── App ─────────────────────────────────────────────────────────────────────
+// --- App ---
 
 function App() {
   const [data, setData] = useState<SyncPlayData | null>(null);
@@ -236,7 +271,10 @@ function App() {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [scheduledMusicId, setScheduledMusicId] = useState<string | null>(null);
   const playableItemsRef = useRef<PlayableItem[]>([]);
+  const scheduleTimerRef = useRef<number | null>(null);
+  const playlistItemRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   // DnD
   const [activeFile, setActiveFile] = useState<DirFile | null>(null);
@@ -472,6 +510,35 @@ function App() {
     catch (err) { console.error(err); }
   };
 
+  const scrollToPlaylistMusic = useCallback((musicId: string) => {
+    scheduleDebug("scroll requested", {
+      musicId,
+      registeredRefs: Object.keys(playlistItemRefs.current).length,
+    });
+
+    window.requestAnimationFrame(() => {
+      const element = playlistItemRefs.current[musicId];
+      if (!element) {
+        scheduleDebug("scroll target not found", {
+          musicId,
+          registeredRefs: Object.keys(playlistItemRefs.current).slice(0, 10),
+        });
+        return;
+      }
+
+      scheduleDebug("scroll target found", {
+        musicId,
+        top: element.offsetTop,
+        text: element.innerText.slice(0, 120),
+      });
+      element.scrollIntoView({ behavior: "smooth", block: "center" });
+      element.classList.add("playlist-scroll-highlight");
+      window.setTimeout(() => {
+        element.classList.remove("playlist-scroll-highlight");
+      }, 1800);
+    });
+  }, []);
+
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
@@ -495,7 +562,7 @@ function App() {
 
   const fetchPlaylist = async () => {
     try {
-      const jsonStr: string = await invoke("read_playlist", { date: "2026-04-29" });
+      const jsonStr: string = await invoke("read_playlist", { date: "2026-04-30" });
       setData(JSON.parse(jsonStr));
     } catch (err) {
       setError(`Erro ao carregar a playlist: ${err}`); setData(null);
@@ -506,39 +573,122 @@ function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.code === "Space" && e.target instanceof HTMLElement && e.target.tagName !== "INPUT") {
+      const isTyping = e.target instanceof HTMLElement && e.target.tagName === "INPUT";
+      if (isTyping) return;
+
+      if (e.code === "Space") {
         e.preventDefault();
         invoke("skip_with_fade").catch(console.error);
+      }
+
+      if (e.code === "KeyT") {
+        const targetId = scheduledMusicId ?? playingId;
+        scheduleDebug("KeyT pressed", { scheduledMusicId, playingId, targetId });
+        if (targetId) {
+          e.preventDefault();
+          scrollToPlaylistMusic(targetId);
+        }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [playingId, scheduledMusicId, scrollToPlaylistMusic]);
 
   useEffect(() => {
     if (!data) return;
-    const items: PlayableItem[] = [];
-    Object.entries(data.playlists).forEach(([plKey, pl]) =>
-      Object.entries(pl.blocks).forEach(([blockKey, block]) => {
-        if (block.musics)
-          Object.entries(block.musics).forEach(([musicKey, music]) => {
-            if (!music.path) return;
-            let mix_end_ms = null, duration_ms = null, fade_duration_ms = null;
-            if (music.extra?.mix) {
-              if (music.extra.mix.mix_end) mix_end_ms = music.extra.mix.mix_end;
-              if (music.extra.mix.duration_real) duration_ms = music.extra.mix.duration_real;
-              else if (music.extra.mix.duration_total) duration_ms = music.extra.mix.duration_total;
-              if (music.extra.mix.mix_total_milesecond) fade_duration_ms = music.extra.mix.mix_total_milesecond;
-            }
-            items.push({ id: `${plKey}-${blockKey}-${musicKey}`, path: music.path, mix_end_ms, duration_ms, fade_duration_ms });
-          });
-      })
-    );
-    playableItemsRef.current = items;
-    invoke("set_queue", { items }).catch(console.error);
-  }, [data]);
 
-  // ─── DnD ─────────────────────────────────────────────────────────────────────
+    const { playableItems, scheduledBlocks } = buildPlaylistRuntimeItems(data);
+    scheduleDebug("playlist runtime items built", {
+      playableItems: playableItems.length,
+      scheduledBlocks: scheduledBlocks.length,
+      firstScheduledBlock: scheduledBlocks[0] ?? null,
+      lastScheduledBlock: scheduledBlocks[scheduledBlocks.length - 1] ?? null,
+    });
+    let cancelled = false;
+
+    const clearScheduleTimer = () => {
+      if (scheduleTimerRef.current !== null) {
+        window.clearTimeout(scheduleTimerRef.current);
+        scheduleTimerRef.current = null;
+      }
+    };
+
+    async function applyScheduleSelection() {
+      clearScheduleTimer();
+
+      try {
+        if (scheduledBlocks.length === 0) {
+          playableItemsRef.current = playableItems;
+          await invoke("set_queue", { items: playableItems });
+          scheduleDebug("no scheduled blocks available");
+          if (!cancelled) setScheduledMusicId(null);
+          return;
+        }
+
+        const selection = await invoke<ScheduleSelectionDto>("get_schedule_selection", {
+          blocks: scheduledBlocks,
+        });
+        if (cancelled) return;
+
+        scheduleDebug("schedule selection received", selection);
+
+        const activeIds = new Set(selection.activeQueueIds);
+        const effectiveQueue = selection.activeQueueIds.length > 0
+          ? playableItems.filter(item => activeIds.has(item.id))
+          : playableItems;
+        playableItemsRef.current = effectiveQueue;
+        await invoke("set_queue", { items: effectiveQueue });
+        scheduleDebug("queue sent to backend", {
+          playableItems: effectiveQueue.length,
+          discardedBySchedule: playableItems.length - effectiveQueue.length,
+        });
+
+        if (selection.type === "active") {
+          setScheduledMusicId(selection.musicId);
+          scrollToPlaylistMusic(selection.musicId);
+          const index = effectiveQueue.findIndex(item => item.id === selection.musicId);
+          scheduleDebug("active selection mapped to queue", {
+            musicId: selection.musicId,
+            index,
+            elapsedSec: selection.elapsedSec,
+          });
+          if (index !== -1) {
+            await invoke("play_index", { index });
+            if (selection.elapsedSec > 0) {
+              await invoke("seek_audio", {
+                positionMs: Math.floor(selection.elapsedSec * 1000),
+              });
+            }
+          }
+        } else if (selection.type === "upcoming") {
+          setScheduledMusicId(selection.musicId);
+          scrollToPlaylistMusic(selection.musicId);
+          scheduleDebug("upcoming selection timer scheduled", {
+            musicId: selection.musicId,
+            startsInSec: selection.startsInSec,
+          });
+          scheduleTimerRef.current = window.setTimeout(() => {
+            void applyScheduleSelection();
+          }, Math.max(0, selection.startsInSec * 1000));
+        } else {
+          scheduleDebug("empty schedule selection");
+          setScheduledMusicId(null);
+        }
+      } catch (e) {
+        scheduleDebug("schedule flow error", String(e));
+        console.error(e);
+      }
+    }
+
+    void applyScheduleSelection();
+
+    return () => {
+      cancelled = true;
+      clearScheduleTimer();
+    };
+  }, [data, scrollToPlaylistMusic]);
+
+  // --- DnD ---
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -577,60 +727,14 @@ function App() {
     }
   };
 
-  // ─── Playlist virtualizer ────────────────────────────────────────────────────
-
-  const playlistParentRef = useRef<HTMLDivElement>(null);
-
-  // Achatar a estrutura aninhada em um array flat de linhas
-  const flatRows = (() => {
-    if (!data) return [] as FlatRowKind[];
-    const rows: FlatRowKind[] = [];
-    for (const [plKey, pl] of Object.entries(data.playlists)) {
-      rows.push({ kind: 'pl-header', plKey, label: pl.program });
-      for (const [blockKey, block] of Object.entries(pl.blocks)) {
-        rows.push({ kind: 'block-header', plKey, blockKey, blockType: block.type });
-        const musicEntries = Object.entries(block.musics ?? {});
-        if (musicEntries.length === 0) {
-          rows.push({ kind: 'block-empty', plKey, blockKey });
-        } else {
-          for (const [musicKey, music] of musicEntries) {
-            rows.push({ kind: 'slot-before', plKey, blockKey, musicKey });
-            rows.push({ kind: 'music', plKey, blockKey, musicKey, music });
-          }
-          rows.push({ kind: 'slot-end', plKey, blockKey });
-        }
-      }
-    }
-    return rows;
-  })();
-
-  const ROW_HEIGHTS: Record<FlatRowKind['kind'], number> = {
-    'pl-header': 52,
-    'block-header': 44,
-    'slot-before': 6,
-    'music': 90,
-    'slot-end': 6,
-    'block-empty': 56,
-  };
-
-  const playlistVirtualizer = useVirtualizer({
-    count: flatRows.length,
-    getScrollElement: () => playlistParentRef.current,
-    estimateSize: (i) => ROW_HEIGHTS[flatRows[i]?.kind] ?? 90,
-    overscan: 5,
-  });
-
-  // ─── Render ───────────────────────────────────────────────────────────────────
-
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
       <div className="grid grid-cols-2 gap-8 p-8 h-screen max-w-[1600px] mx-auto">
 
-        {/* ══ COLUNA ESQUERDA (playlist) ══ */}
+        {/* COLUNA ESQUERDA (playlist) */}
         <div
-          ref={playlistParentRef}
           className={[
-            "scrollable-y relative flex flex-col bg-[var(--glass-bg)] backdrop-blur-xl border rounded-2xl p-6 shadow-[0_4px_30px_rgba(0,0,0,0.1)] overflow-y-auto",
+            "scrollable-y relative flex flex-col bg-(--glass-bg) backdrop-blur-xl border rounded-2xl p-6 shadow-[0_4px_30px_rgba(0,0,0,0.1)] overflow-y-auto",
             isOverPlaylist
               ? "border-emerald-400/60 shadow-[0_0_0_2px_rgba(52,211,153,0.3),0_4px_30px_rgba(0,0,0,0.1)] bg-slate-800/85"
               : "border-white/10",
@@ -640,151 +744,83 @@ function App() {
           {error && <div className="text-center p-8 text-red-300">{error}</div>}
 
           {!loading && !error && data && (
-            <div
-              style={{
-                height: `${playlistVirtualizer.getTotalSize()}px`,
-                width: '100%',
-                position: 'relative',
-              }}
-            >
-              {playlistVirtualizer.getVirtualItems().map((virtualRow) => {
-                const row = flatRows[virtualRow.index];
-                const style: React.CSSProperties = {
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  width: '100%',
-                  transform: `translateY(${virtualRow.start}px)`,
-                };
-
-                if (row.kind === 'pl-header') {
-                  return (
-                    <div key={virtualRow.key} style={style}>
-                      <h2 className="playlist-title">{row.label}</h2>
-                    </div>
-                  );
-                }
-
-                if (row.kind === 'block-header') {
-                  return (
-                    <div key={virtualRow.key} style={style} className="px-1">
-                      <div className="flex justify-between items-center mb-3 border-b border-white/5 pb-2">
-                        <h3 className="text-base text-slate-400">Bloco {row.blockKey}</h3>
-                        <span className={`text-[0.7rem] uppercase tracking-[0.05em] px-2 py-1 rounded font-semibold block-type type-${row.blockType}`}>{row.blockType}</span>
-                      </div>
-                    </div>
-                  );
-                }
-
-                if (row.kind === 'slot-before') {
-                  return (
-                    <div key={virtualRow.key} style={style}>
-                      <DroppableSlot id={`slot-before-${row.plKey}|${row.blockKey}|${row.musicKey}`} />
-                    </div>
-                  );
-                }
-
-                if (row.kind === 'slot-end') {
-                  return (
-                    <div key={virtualRow.key} style={style}>
-                      <DroppableSlot id={`slot-end-${row.plKey}|${row.blockKey}`} />
-                    </div>
-                  );
-                }
-
-                if (row.kind === 'block-empty') {
-                  return (
-                    <div key={virtualRow.key} style={style}>
-                      <div className="block-empty-drop relative">
-                        <DroppableSlot id={`slot-end-${row.plKey}|${row.blockKey}`} />
-                        <p className="absolute inset-0 flex items-center justify-center pointer-events-none m-0 text-[0.8rem] text-slate-400 italic">*(Sem mídias — arraste aqui)*</p>
-                      </div>
-                    </div>
-                  );
-                }
-
-                if (row.kind === 'music') {
-                  const { plKey, blockKey, musicKey, music } = row;
-                  const uniqueId = `${plKey}-${blockKey}-${musicKey}`;
-                  const title = music.text || `Mídia: ${music.type}`;
-                  const isCurrentlyPlaying = playingId === uniqueId;
-                  const isBackgroundPlaying = backgroundIds.includes(uniqueId);
-
-                  const itemClass = [
-                    "flex flex-col px-3 py-2 bg-white/[0.02] rounded-md transition-all duration-200 border",
-                    isCurrentlyPlaying ? "bg-blue-500/10 border-blue-500/30" :
-                      isBackgroundPlaying ? "bg-violet-500/10 border-violet-500/30" :
-                        "border-transparent hover:bg-white/5",
-                  ].join(" ");
-
-                  let displayDuration = 0;
-                  if (music.extra?.mix?.duration_total) displayDuration = music.extra.mix.duration_total / 1000;
-                  else if (music.extra?.mix?.duration_real) displayDuration = music.extra.mix.duration_real / 1000;
-                  else if (music.duration) displayDuration = music.duration;
-                  else if (isCurrentlyPlaying) displayDuration = duration;
-
-                  let itemCurrentTime = 0;
-                  if (isCurrentlyPlaying) itemCurrentTime = currentTime;
-                  else if (isBackgroundPlaying) itemCurrentTime = (backgroundPositions[uniqueId] || 0) / 1000;
-
-                  const prog = displayDuration ? (itemCurrentTime / displayDuration) * 100 : 0;
-                  let mixEnd: number | null = null;
-                  if (music.extra?.mix?.mix_end && displayDuration)
-                    mixEnd = (music.extra.mix.mix_end / 1000 / displayDuration) * 100;
-
-                  let bgStyle = `linear-gradient(to right, var(--accent-color) ${prog}%, rgba(255,255,255,0.1) ${prog}%)`;
-                  if (mixEnd !== null) {
-                    bgStyle = prog < mixEnd
-                      ? `linear-gradient(to right, var(--accent-color) ${prog}%, rgba(255,255,255,0.1) ${prog}%, rgba(255,255,255,0.1) ${mixEnd}%, rgba(255,100,50,0.4) ${mixEnd}%)`
-                      : `linear-gradient(to right, var(--accent-color) ${prog}%, rgba(255,100,50,0.4) ${prog}%)`;
-                  }
-
-                  return (
-                    <div key={virtualRow.key} style={style}>
-                      <div className={itemClass}>
-                        <div className="flex justify-between items-center w-full">
-                          <div className="flex items-center gap-3 flex-1 overflow-hidden">
-                            {music.path && (
-                              <button
-                                className={[
-                                  "w-7 h-7 rounded-full flex items-center justify-center text-white shrink-0 p-0 text-[0.8rem] transition-all duration-200",
-                                  isCurrentlyPlaying && isPlaying
-                                    ? "bg-red-500 animate-pulse-btn"
-                                    : "bg-white/10 hover:bg-blue-500 hover:scale-110",
-                                ].join(" ")}
-                                onClick={() => togglePlay(uniqueId)}
-                                title={isCurrentlyPlaying && isPlaying ? "Pausar" : "Tocar"}
-                              >
-                                {isCurrentlyPlaying && isPlaying ? "⏸" : "▶"}
-                              </button>
-                            )}
-                            <span className="text-[0.9rem] text-white/90 whitespace-nowrap overflow-hidden text-ellipsis pr-4">{title}</span>
-                          </div>
-                          {music.type && <span className="text-[0.65rem] bg-white/10 px-1.5 py-0.5 rounded text-slate-400 whitespace-nowrap">{music.type}</span>}
+            <div className="w-full">
+              {orderedPlaylistEntries(data).map(([plKey, pl]) => (
+                <div key={plKey}>
+                  <h2 className="playlist-title">{pl.program}</h2>
+                  {orderedBlockEntries(pl.blocks).map(([blockKey, block]) => {
+                    const musicEntries = Object.entries(block.musics ?? {});
+                    const blockDisplayStart = getBlockDisplayStart(block.start, musicEntries);
+                    return (
+                      <section
+                        key={`${plKey}-${blockKey}`}
+                        className={[
+                          "playlist-block",
+                          block.type === "musical" ? "playlist-block--musical" : "playlist-block--commercial",
+                        ].join(" ")}
+                      >
+                        <BlockHeader
+                          blockKey={blockKey}
+                          blockType={block.type}
+                          startLabel={typeof blockDisplayStart === 'number' ? formatSecondsOfDay(blockDisplayStart, true) : undefined}
+                        />
+                        <div className="playlist-block-body">
+                          {musicEntries.length === 0 ? (
+                            <div className="px-2 py-1">
+                              <div className="block-empty-drop relative rounded-xl border border-dashed border-white/10 mx-1">
+                                <DroppableSlot id={`slot-end-${plKey}|${blockKey}`} />
+                                <p className="absolute inset-0 flex items-center justify-center pointer-events-none m-0 text-[0.78rem] text-slate-500 italic">
+                                  Arraste mídias aqui
+                                </p>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              {musicEntries.map(([musicKey, music]) => {
+                                const uniqueId = `${plKey}-${blockKey}-${musicKey}`;
+                                const isCurrentlyPlaying = playingId === uniqueId;
+                                const isBackgroundPlaying = backgroundIds.includes(uniqueId);
+                                return (
+                                  <div
+                                    key={musicKey}
+                                    ref={(node) => {
+                                      if (node) playlistItemRefs.current[uniqueId] = node;
+                                      else delete playlistItemRefs.current[uniqueId];
+                                    }}
+                                    data-playlist-music-id={uniqueId}
+                                  >
+                                    <DroppableSlot id={`slot-before-${plKey}|${blockKey}|${musicKey}`} />
+                                    <PlaylistMusicItem
+                                      music={music}
+                                      isCurrentlyPlaying={isCurrentlyPlaying}
+                                      isBackgroundPlaying={isBackgroundPlaying}
+                                      isScheduledUpcoming={scheduledMusicId === uniqueId && !isCurrentlyPlaying && !isBackgroundPlaying}
+                                      isPlaying={isPlaying}
+                                      currentTime={currentTime}
+                                      duration={duration}
+                                      backgroundPosition={backgroundPositions[uniqueId] ?? 0}
+                                      onPlay={() => togglePlay(uniqueId)}
+                                      onSeek={handleSeek}
+                                    />
+                                  </div>
+                                );
+                              })}
+                              <DroppableSlot id={`slot-end-${plKey}|${blockKey}`} />
+                            </>
+                          )}
                         </div>
-                        <div className="flex items-center gap-3 w-full mt-3 px-2">
-                          <span className="text-[0.75rem] text-slate-400 tabular-nums min-w-[35px]">{formatTime(itemCurrentTime)}</span>
-                          <input
-                            type="range" className="progress-bar"
-                            min="0" max={displayDuration || 0} step="0.001"
-                            value={itemCurrentTime} onChange={handleSeek}
-                            disabled={!isCurrentlyPlaying} style={{ background: bgStyle }}
-                          />
-                          <span className="text-[0.75rem] text-slate-400 tabular-nums min-w-[35px]">{formatTime(displayDuration)}</span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                }
-
-                return null;
-              })}
+                        <div className="playlist-block-footer" />
+                      </section>
+                    );
+                  })}
+                </div>
+              ))}
             </div>
           )}
         </div>
 
-        {/* ══ COLUNA DIREITA (#midias) ══ */}
-        <div id="midias" className="flex flex-col bg-[var(--glass-bg)] backdrop-blur-xl border border-white/10 rounded-2xl shadow-[0_4px_30px_rgba(0,0,0,0.1)] overflow-hidden p-0">
+        {/* COLUNA DIREITA (#midias)*/}
+        <div id="midias" className="flex flex-col bg-(--glass-bg) backdrop-blur-xl border border-white/10 rounded-2xl shadow-[0_4px_30px_rgba(0,0,0,0.1)] overflow-hidden p-0">
           <div className="px-5 pt-5 pb-3 border-b border-white/10 flex flex-col gap-2.5 shrink-0">
             <h2 className="text-[1rem] font-semibold text-slate-400 tracking-[0.04em] uppercase">📂 Biblioteca de Mídias</h2>
             <div className="flex gap-2">
@@ -821,8 +857,8 @@ function App() {
               </select>
             </div>
 
-            <div className="flex items-center gap-2 bg-white/[0.04] border border-white/10 rounded-lg px-3 py-1.5">
-              <span className="text-[0.85rem] opacity-70">🔎</span>
+            <div className="flex items-center gap-2 bg-white/4 border border-white/10 rounded-lg px-3 py-1.5">
+              <span className="text-[0.85rem] opacity-70" aria-hidden>🔍</span>
               <input id="buscaMidia" className="flex-1 bg-transparent border-none outline-none text-white/90 text-[0.85rem] placeholder:text-slate-500"
                 placeholder="Buscar mídia..." value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)} />
@@ -838,8 +874,8 @@ function App() {
             {dirError && <div className="m-3 px-3 py-2 bg-red-500/12 border border-red-500/30 rounded-lg text-red-300 text-[0.82rem]">⚠️ {dirError}</div>}
             {!dirLoading && dirFiles.length === 0 && !dirError && (
               <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-400 text-[0.88rem] text-center p-8">
-                <span className="text-[2.5rem] opacity-50">🎵</span>
-                <p>Selecione uma pasta e clique em 🔍 para carregar os arquivos.</p>
+                <span className="text-[2.5rem] opacity-50" aria-hidden>🎵</span>
+                <p>Selecione uma pasta e carregue os arquivos (🔍 acima).</p>
               </div>
             )}
             {dirLoading && (
@@ -936,7 +972,7 @@ function App() {
             "flex items-center gap-2.5 px-3 h-12 max-w-[360px] backdrop-blur-md bg-slate-900/90 border rounded-lg shadow-[0_8px_32px_rgba(0,0,0,0.4)] cursor-grabbing opacity-95 pointer-events-none",
             isOverPlaylist ? "border-emerald-500/70 bg-[rgba(16,50,35,0.95)] shadow-[0_8px_32px_rgba(52,211,153,0.25)]" : "border-white/20",
           ].join(" ")}>
-            <span className="text-base shrink-0">🎵</span>
+            <span className="text-base shrink-0" aria-hidden>🎵</span>
             <span className="flex-1 text-[0.82rem] text-white/90 whitespace-nowrap overflow-hidden text-ellipsis">{activeFile.name.replace(/\.[^/.]+$/, "")}</span>
             <span className="text-[0.62rem] bg-white/10 text-slate-400 px-1.5 py-0.5 rounded font-semibold shrink-0">{activeFile.name.split(".").pop()?.toUpperCase()}</span>
           </div>

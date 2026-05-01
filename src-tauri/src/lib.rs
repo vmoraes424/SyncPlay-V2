@@ -1,9 +1,14 @@
 mod audio;
+mod schedule;
 use audio::{AudioCommand, AudioItem, PlaybackState};
+use chrono::{Local, Timelike};
+use schedule::{
+    select_music_from_blocks, BlockScheduleSelection, ScheduledBlock, ScheduledMedia, SecondsOfDay,
+};
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::sync::{mpsc, Arc, Mutex};
 use tauri::State;
-use serde::Serialize;
 
 #[derive(Serialize, Clone)]
 struct DirFileEntry {
@@ -15,6 +20,114 @@ struct DirFileEntry {
 struct AudioState {
     tx: Mutex<mpsc::Sender<AudioCommand>>,
     playback: Arc<Mutex<PlaybackState>>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ScheduledMediaDto {
+    id: String,
+    title: String,
+    media_type: String,
+    path: String,
+    duration_sec: Option<f64>,
+    mix_out_sec: Option<f64>,
+    disabled: bool,
+    discarded: bool,
+    manual_discard: bool,
+    fixed: bool,
+    manual_type: bool,
+    disable_discard: bool,
+}
+
+impl From<ScheduledMediaDto> for ScheduledMedia {
+    fn from(item: ScheduledMediaDto) -> Self {
+        Self {
+            id: item.id,
+            title: item.title,
+            media_type: item.media_type,
+            path: item.path,
+            duration_sec: item.duration_sec,
+            mix_out_sec: item.mix_out_sec,
+            disabled: item.disabled,
+            discarded: item.discarded,
+            manual_discard: item.manual_discard,
+            fixed: item.fixed,
+            manual_type: item.manual_type,
+            disable_discard: item.disable_discard,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ScheduledBlockDto {
+    id: String,
+    start_sec: SecondsOfDay,
+    size_sec: f64,
+    disable_discard: bool,
+    medias: Vec<ScheduledMediaDto>,
+}
+
+impl From<ScheduledBlockDto> for ScheduledBlock {
+    fn from(block: ScheduledBlockDto) -> Self {
+        Self {
+            id: block.id,
+            start_sec: block.start_sec,
+            size_sec: block.size_sec,
+            disable_discard: block.disable_discard,
+            medias: block.medias.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+enum ScheduleSelectionDto {
+    #[serde(rename_all = "camelCase")]
+    Active {
+        music_id: String,
+        elapsed_sec: f64,
+        active_queue_ids: Vec<String>,
+    },
+    #[serde(rename_all = "camelCase")]
+    Upcoming {
+        music_id: String,
+        starts_in_sec: f64,
+        active_queue_ids: Vec<String>,
+    },
+    #[serde(rename_all = "camelCase")]
+    Empty { active_queue_ids: Vec<String> },
+}
+
+impl From<BlockScheduleSelection> for ScheduleSelectionDto {
+    fn from(selection: BlockScheduleSelection) -> Self {
+        match selection {
+            BlockScheduleSelection::Active {
+                music_id,
+                elapsed_sec,
+                active_queue_ids,
+            } => Self::Active {
+                music_id,
+                elapsed_sec,
+                active_queue_ids,
+            },
+            BlockScheduleSelection::Upcoming {
+                music_id,
+                starts_in_sec,
+                active_queue_ids,
+            } => Self::Upcoming {
+                music_id,
+                starts_in_sec,
+                active_queue_ids,
+            },
+            BlockScheduleSelection::Empty { active_queue_ids } => Self::Empty { active_queue_ids },
+        }
+    }
+}
+
+fn local_seconds_of_day() -> SecondsOfDay {
+    let now = Local::now();
+    now.num_seconds_from_midnight()
 }
 
 #[tauri::command]
@@ -39,32 +152,62 @@ fn read_config(filename: &str) -> Result<String, String> {
 
 #[tauri::command]
 fn set_queue(items: Vec<AudioItem>, state: State<'_, AudioState>) -> Result<(), String> {
-    state.tx.lock().unwrap().send(AudioCommand::SetQueue(items)).map_err(|e| e.to_string())
+    state
+        .tx
+        .lock()
+        .unwrap()
+        .send(AudioCommand::SetQueue(items))
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn play_index(index: usize, state: State<'_, AudioState>) -> Result<(), String> {
-    state.tx.lock().unwrap().send(AudioCommand::PlayIndex(index)).map_err(|e| e.to_string())
+    state
+        .tx
+        .lock()
+        .unwrap()
+        .send(AudioCommand::PlayIndex(index))
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn pause_audio(state: State<'_, AudioState>) -> Result<(), String> {
-    state.tx.lock().unwrap().send(AudioCommand::Pause).map_err(|e| e.to_string())
+    state
+        .tx
+        .lock()
+        .unwrap()
+        .send(AudioCommand::Pause)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn resume_audio(state: State<'_, AudioState>) -> Result<(), String> {
-    state.tx.lock().unwrap().send(AudioCommand::Resume).map_err(|e| e.to_string())
+    state
+        .tx
+        .lock()
+        .unwrap()
+        .send(AudioCommand::Resume)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn seek_audio(position_ms: u64, state: State<'_, AudioState>) -> Result<(), String> {
-    state.tx.lock().unwrap().send(AudioCommand::Seek(position_ms)).map_err(|e| e.to_string())
+    state
+        .tx
+        .lock()
+        .unwrap()
+        .send(AudioCommand::Seek(position_ms))
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn skip_with_fade(state: State<'_, AudioState>) -> Result<(), String> {
-    state.tx.lock().unwrap().send(AudioCommand::SkipWithFade).map_err(|e| e.to_string())
+    state
+        .tx
+        .lock()
+        .unwrap()
+        .send(AudioCommand::SkipWithFade)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -73,27 +216,58 @@ fn get_playback_state(state: State<'_, AudioState>) -> Result<PlaybackState, Str
 }
 
 #[tauri::command]
+fn get_schedule_selection(blocks: Vec<ScheduledBlockDto>) -> Result<ScheduleSelectionDto, String> {
+    let scheduled_blocks: Vec<ScheduledBlock> = blocks.into_iter().map(Into::into).collect();
+    let now_sec = local_seconds_of_day();
+    let selection = select_music_from_blocks(&scheduled_blocks, now_sec, 120.0, "advanced");
+
+    eprintln!(
+        "[Schedule] get_schedule_selection now_sec={} blocks={} selection={:?}",
+        now_sec,
+        scheduled_blocks.len(),
+        selection
+    );
+
+    Ok(selection.into())
+}
+
+#[tauri::command]
+fn debug_schedule_log(message: String) {
+    eprintln!("[Schedule:UI] {}", message);
+}
+
+#[tauri::command]
 fn list_directories(dir_paths: Vec<String>) -> Result<Vec<DirFileEntry>, String> {
     const AUDIO_EXTS: &[&str] = &["mp3", "wav", "ogg", "flac", "aac", "m4a", "wma", "opus"];
     let mut files: Vec<DirFileEntry> = Vec::new();
-    
+
     for dir_path in dir_paths {
         if let Ok(entries) = fs::read_dir(&dir_path) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if !path.is_file() { continue; }
+                if !path.is_file() {
+                    continue;
+                }
                 if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                     if AUDIO_EXTS.contains(&ext.to_lowercase().as_str()) {
-                        let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                        let name = path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string();
                         let size_bytes = entry.metadata().map(|m| m.len()).unwrap_or(0);
                         let full_path = path.to_string_lossy().to_string();
-                        files.push(DirFileEntry { name, path: full_path, size_bytes });
+                        files.push(DirFileEntry {
+                            name,
+                            path: full_path,
+                            size_bytes,
+                        });
                     }
                 }
             }
         }
     }
-    
+
     files.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     Ok(files)
 }
@@ -101,7 +275,7 @@ fn list_directories(dir_paths: Vec<String>) -> Result<Vec<DirFileEntry>, String>
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let (tx, playback) = audio::start_audio_engine();
-    
+
     tauri::Builder::default()
         .manage(AudioState {
             tx: Mutex::new(tx),
@@ -118,6 +292,8 @@ pub fn run() {
             seek_audio,
             skip_with_fade,
             get_playback_state,
+            get_schedule_selection,
+            debug_schedule_log,
             list_directories
         ])
         .run(tauri::generate_context!())
