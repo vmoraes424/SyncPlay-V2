@@ -94,7 +94,7 @@ export function PlaylistMusicItem({
   const itemBorderColor = TYPE_BORDER[music.type ?? ''];
 
   const itemClass = [
-    'playlist-music-item flex flex-col rounded-sm transition-all duration-200 border mx-2 my-0.5 px-3 py-2',
+    'playlist-music-item flex flex-col rounded-md transition-all duration-200 border mx-2 px-3 py-2',
     isDisabled
       ? 'bg-slate-950/35 border-slate-500/20 border-dashed opacity-45 grayscale saturate-0'
       : isCurrentlyPlaying
