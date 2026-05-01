@@ -260,11 +260,25 @@ interface VisiblePlaylistGroup {
   blocks: Array<[string, SyncPlayData['playlists'][string]['blocks'][string]]>;
 }
 
-function buildVisiblePlaylistGroups(
+/** Expansão manual da cauda da playlist (após o recorte por configuração). */
+interface PlaylistTailExpansion {
+  extraAfterBlocks: number;
+  /** Mostrar todos os blocos restantes até o fim da grade do dia */
+  showAllUntilEnd: boolean;
+}
+
+interface VisiblePlaylistSlice {
+  groups: VisiblePlaylistGroup[];
+  /** Ainda há blocos depois da última fatia exibida */
+  hasMoreTail: boolean;
+}
+
+function buildVisiblePlaylistSlice(
   data: SyncPlayData,
   anchorMusicId: string | null,
-  windowSize: PlaylistBlockWindow
-): VisiblePlaylistGroup[] {
+  windowSize: PlaylistBlockWindow,
+  tailExpansion: PlaylistTailExpansion
+): VisiblePlaylistSlice {
   const orderedBlocks = orderedPlaylistEntries(data).flatMap(([plKey, pl]) =>
     orderedBlockEntries(pl.blocks).map(([blockKey, block]) => ({
       plKey,
@@ -274,14 +288,25 @@ function buildVisiblePlaylistGroups(
     }))
   );
 
-  if (orderedBlocks.length === 0) return [];
+  if (orderedBlocks.length === 0) return { groups: [], hasMoreTail: false };
 
   const anchorIndex = anchorMusicId
     ? orderedBlocks.findIndex(({ plKey, blockKey }) => anchorMusicId.startsWith(`${plKey}-${blockKey}-`))
     : -1;
   const baseIndex = anchorIndex >= 0 ? anchorIndex : 0;
   const firstVisibleIndex = Math.max(0, baseIndex - windowSize.before);
-  const lastVisibleIndex = Math.min(orderedBlocks.length, baseIndex + windowSize.after + 1);
+  const defaultLastExclusive = Math.min(
+    orderedBlocks.length,
+    baseIndex + windowSize.after + 1
+  );
+  const lastVisibleIndex = tailExpansion.showAllUntilEnd
+    ? orderedBlocks.length
+    : Math.min(
+        orderedBlocks.length,
+        defaultLastExclusive + tailExpansion.extraAfterBlocks
+      );
+
+  const hasMoreTail = lastVisibleIndex < orderedBlocks.length;
   const visibleGroups: VisiblePlaylistGroup[] = [];
 
   for (const { plKey, pl, blockKey, block } of orderedBlocks.slice(firstVisibleIndex, lastVisibleIndex)) {
@@ -293,7 +318,7 @@ function buildVisiblePlaylistGroups(
     }
   }
 
-  return visibleGroups;
+  return { groups: visibleGroups, hasMoreTail };
 }
 
 // --- DroppableSlot ---
@@ -430,6 +455,8 @@ function App() {
   const [playlistBlockWindow, setPlaylistBlockWindow] = useState<PlaylistBlockWindow>(
     DEFAULT_PLAYLIST_BLOCK_WINDOW
   );
+  const [playlistExtraAfterBlocks, setPlaylistExtraAfterBlocks] = useState(0);
+  const [playlistShowAllTail, setPlaylistShowAllTail] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -460,12 +487,34 @@ function App() {
     overscan: 10,
   });
 
-  const visiblePlaylistGroups = useMemo(
-    () => data
-      ? buildVisiblePlaylistGroups(data, playingId ?? scheduledMusicId, playlistBlockWindow)
-      : [],
-    [data, playingId, scheduledMusicId, playlistBlockWindow]
+  const playlistTailExpansion = useMemo<PlaylistTailExpansion>(
+    () => ({
+      extraAfterBlocks: playlistExtraAfterBlocks,
+      showAllUntilEnd: playlistShowAllTail,
+    }),
+    [playlistExtraAfterBlocks, playlistShowAllTail]
   );
+
+  const { groups: visiblePlaylistGroups, hasMoreTail: playlistHasMoreTail } = useMemo(
+    () =>
+      data
+        ? buildVisiblePlaylistSlice(
+            data,
+            playingId ?? scheduledMusicId,
+            playlistBlockWindow,
+            playlistTailExpansion
+          )
+        : { groups: [] as VisiblePlaylistGroup[], hasMoreTail: false },
+    [data, playingId, scheduledMusicId, playlistBlockWindow, playlistTailExpansion]
+  );
+
+  const loadNextPlaylistBlock = useCallback(() => {
+    setPlaylistExtraAfterBlocks((n) => n + 1);
+  }, []);
+
+  const loadAllPlaylistBlocksUntilEnd = useCallback(() => {
+    setPlaylistShowAllTail(true);
+  }, []);
 
   const loadDirectories = useCallback(async (paths: string[]) => {
     setDirLoading(true);
@@ -702,8 +751,12 @@ function App() {
   const fetchPlaylist = async () => {
     try {
       const jsonStr: string = await invoke("read_playlist", { date: new Date().toISOString().split('T')[0] });
+      setPlaylistExtraAfterBlocks(0);
+      setPlaylistShowAllTail(false);
       setData(JSON.parse(jsonStr));
     } catch (err) {
+      setPlaylistExtraAfterBlocks(0);
+      setPlaylistShowAllTail(false);
       setError(`Erro ao carregar a playlist: ${err}`); setData(null);
     } finally { setLoading(false); }
   };
@@ -973,6 +1026,24 @@ function App() {
                   })}
                 </div>
               ))}
+              {playlistHasMoreTail && (
+                <div className="flex flex-wrap gap-2 px-3 py-3 border-t border-white/10 mt-1">
+                  <button
+                    type="button"
+                    className="flex-1 min-w-[140px] rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-[0.8rem] text-white/90 hover:bg-white/10 transition-colors"
+                    onClick={loadNextPlaylistBlock}
+                  >
+                    Carregar o próximo bloco
+                  </button>
+                  <button
+                    type="button"
+                    className="flex-1 min-w-[140px] rounded-lg border border-emerald-500/35 bg-emerald-600/15 px-3 py-2 text-[0.8rem] text-emerald-100 hover:bg-emerald-600/25 transition-colors"
+                    onClick={loadAllPlaylistBlocksUntilEnd}
+                  >
+                    Carregar todos
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
