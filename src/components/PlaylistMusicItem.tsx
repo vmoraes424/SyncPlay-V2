@@ -183,18 +183,28 @@ export function PlaylistMusicItem({
           : undefined
       }
     >
-      {/* Linha 1: play | artista/música | tempos */}
-      <div className="flex flex-row gap-3 items-start w-full min-w-0 h-full">
-        <div className="w-8 shrink-0 flex justify-center items-start pt-0.5">
+      {/* Linha 1: cover+play | artista/música | tempos */}
+      <div className="flex flex-row gap-3 items-center w-full min-w-0">
+        {/* Cover com botão de play sobreposto */}
+        <div className="relative w-[100px] h-[64px] shrink-0 rounded overflow-hidden bg-white/5">
+          {music.cover ? (
+            <img
+              src={music.cover}
+              alt=""
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+          ) : (
+            <div className="absolute inset-0 bg-white/5" />
+          )}
           {music.path ? (
             <button
               className={[
-                'w-8 h-8 rounded-full flex items-center justify-center text-white shrink-0 p-0 text-[0.85rem] transition-all duration-200',
+                'absolute inset-0 w-full h-full flex items-center justify-center text-white p-0 text-[1rem] transition-all duration-200',
                 isDisabled
-                  ? 'bg-white/5 text-slate-500 cursor-not-allowed'
+                  ? 'text-slate-500 cursor-not-allowed bg-black/30'
                   : isCurrentlyPlaying && isPlaying
-                    ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.4)] animate-pulse-btn'
-                    : 'bg-white/10 hover:bg-blue-500 hover:shadow-[0_0_10px_rgba(59,130,246,0.4)] hover:scale-110',
+                    ? 'bg-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.4)] animate-pulse-btn'
+                    : 'bg-black/30 hover:bg-blue-500/60 hover:shadow-[0_0_10px_rgba(59,130,246,0.4)]',
               ].join(' ')}
               onClick={onPlay}
               disabled={isDisabled}
@@ -202,12 +212,15 @@ export function PlaylistMusicItem({
                 isDisabled ? 'Mídia descartada/desabilitada' : isCurrentlyPlaying && isPlaying ? 'Pausar' : 'Tocar'
               }
             >
-              {isCurrentlyPlaying && isPlaying ? '⏸' : '▶'}
+              <span className="drop-shadow-[0_1px_4px_rgba(0,0,0,0.8)] text-xl">
+                {isCurrentlyPlaying && isPlaying ? '⏸' : '▶'}
+              </span>
             </button>
           ) : null}
         </div>
 
-        <div className='flex flex-col w-full min-w-0 gap-1 flex-1 relative h-full justify-between'>
+        {/* Título / artista + barra de progresso */}
+        <div className="flex flex-col w-full min-w-0 gap-1 flex-1 justify-between">
           <div className="flex flex-col gap-1">
             {artist ? (
               <>
@@ -232,6 +245,7 @@ export function PlaylistMusicItem({
             </div>
           </div>
 
+          {/* Barra de progresso no rodapé deste container */}
           <input
             type="range"
             className="progress-bar playlist-music-progress-bar w-full min-w-0 min-h-[12px] bg-zinc-900!"
@@ -245,6 +259,7 @@ export function PlaylistMusicItem({
           />
         </div>
 
+        {/* Tempos + skip/lixeira */}
         <div className="shrink-0 flex flex-col items-center justify-center gap-1 min-w-0 w-[20%]">
           <span className="text-md text-white font-black">
             {formatTimeRemaining(remainingSec)}
@@ -273,6 +288,7 @@ export function PlaylistMusicItem({
           </div>
         </div>
       </div>
+
     </div>
   );
 }

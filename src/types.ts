@@ -55,6 +55,8 @@ export interface Music {
   start?: number;
   duration?: number;
   path?: string;
+  /** Caminho ou URL da imagem de capa */
+  cover?: string;
   extra?: ExtraData;
   disabled?: boolean | number;
   discarded?: boolean | number;
