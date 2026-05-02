@@ -144,8 +144,11 @@ export function PlaylistMusicItem({
 
   const prog = displayDuration ? (itemCurrentTime / displayDuration) * 100 : 0;
   let mixEndPct: number | null = null;
-  if (music.extra?.mix?.mix_end && displayDuration)
-    mixEndPct = (music.extra.mix.mix_end / 1000 / displayDuration) * 100;
+  if (music.extra?.mix?.mix_end && displayDuration) {
+    // Subtrai 1 s para alinhar com o ponto real de disparo do engine (trigger_at = mix_end - 1 s).
+    const mixTriggerSec = Math.max(0, music.extra.mix.mix_end / 1000 - 1);
+    mixEndPct = (mixTriggerSec / displayDuration) * 100;
+  }
 
   let barBg: string;
   if (mixEndPct === null) {

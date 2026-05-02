@@ -223,10 +223,14 @@ pub fn start_audio_engine() -> (mpsc::Sender<AudioCommand>, Arc<Mutex<PlaybackSt
                 // Mix trigger logic
                 if !track.mix_triggered {
                     if let Some(mix_end) = track.item.mix_end_ms {
-                        if mix_end > 0 && pos_ms >= mix_end {
+                        // Dispara 1 segundo antes do mix_end para compensar a latência do buffer
+                        // de áudio, garantindo que o countdown mostre o valor correto (ex.: "3"
+                        // para um mix de 2 s, em vez de "2").
+                        let trigger_at = mix_end.saturating_sub(1000);
+                        if mix_end > 0 && pos_ms >= trigger_at {
                             log_debug(&format!(
-                                "Mix triggered by mix_end! pos_ms: {}, mix_end: {}",
-                                pos_ms, mix_end
+                                "Mix triggered by mix_end! pos_ms: {}, mix_end: {}, trigger_at: {}",
+                                pos_ms, mix_end, trigger_at
                             ));
                             track.mix_triggered = true;
                             auto_play_next = Some(track.index + 1);
