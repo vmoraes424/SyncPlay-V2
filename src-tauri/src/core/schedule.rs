@@ -1,96 +1,7 @@
-pub const DAY_SECONDS: u32 = 86_400;
-
-pub type SecondsOfDay = u32;
-
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-pub struct ScheduledMusic {
-    pub id: String,
-    pub title: String,
-    pub path: String,
-    pub target_start_sec: SecondsOfDay,
-    pub duration_sec: Option<f64>,
-    pub mix_out_sec: Option<f64>,
-    pub disabled: bool,
-}
-
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-pub struct ScheduledMedia {
-    pub id: String,
-    pub title: String,
-    pub media_type: String,
-    pub path: String,
-    pub raw_start_sec: Option<SecondsOfDay>,
-    pub duration_sec: Option<f64>,
-    pub mix_out_sec: Option<f64>,
-    pub disabled: bool,
-    pub discarded: bool,
-    pub manual_discard: bool,
-    pub fixed: bool,
-    pub manual_type: bool,
-    pub disable_discard: bool,
-}
-
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-pub struct ScheduledBlock {
-    pub id: String,
-    pub start_sec: SecondsOfDay,
-    pub size_sec: f64,
-    pub disable_discard: bool,
-    pub medias: Vec<ScheduledMedia>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-#[allow(dead_code)]
-pub enum ScheduleSelection {
-    Active {
-        music_id: String,
-        elapsed_sec: f64,
-    },
-    Upcoming {
-        music_id: String,
-        starts_in_sec: f64,
-    },
-    Empty,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum BlockScheduleSelection {
-    Active {
-        music_id: String,
-        elapsed_sec: f64,
-        active_queue_ids: Vec<String>,
-        media_starts: Vec<ScheduleMediaStart>,
-    },
-    Upcoming {
-        music_id: String,
-        starts_in_sec: f64,
-        active_queue_ids: Vec<String>,
-        media_starts: Vec<ScheduleMediaStart>,
-    },
-    Empty {
-        active_queue_ids: Vec<String>,
-        media_starts: Vec<ScheduleMediaStart>,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ScheduleMediaStart {
-    pub id: String,
-    pub raw_start_sec: Option<SecondsOfDay>,
-    pub start_sec: SecondsOfDay,
-    pub start_label: String,
-    pub active: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
-pub enum ScheduleMode {
-    ContinuousDaily,
-    FiniteDay,
-}
+use crate::models::schedule::{
+    BlockScheduleSelection, ScheduleMediaStart, ScheduleMode, ScheduleSelection, ScheduledBlock,
+    ScheduledMedia, ScheduledMusic, SecondsOfDay, DAY_SECONDS,
+};
 
 /// Normaliza qualquer valor de segundos para o intervalo [0, 86400).
 /// Aceita valores negativos, pois alguns cálculos fazem subtração.
@@ -625,7 +536,7 @@ mod tests {
         );
     }
 
-    // ── Testes da regra de fim efetivo ────────────────────────────────────────
+    // -- Testes da regra de fim efetivo ------------------------------------------------
 
     /// Valida a fórmula central do documento:
     ///   media[0].start = block.start = 36000
@@ -685,11 +596,11 @@ mod tests {
     /// O elapsed é limitado à duração efetiva (não ultrapassa o fim do arquivo).
     #[test]
     fn elapsed_capped_at_effective_duration() {
-        // Música de 60s com 3s de mix → duração efetiva = 57s.
-        // now = 36070 → elapsed_raw = 70s, mas deve ser limitado a 57s.
+        // Música de 60s com 3s de mix -> duração efetiva = 57s.
+        // now = 36070 -> elapsed_raw = 70s, mas deve ser limitado a 57s.
         let items = vec![music_with_duration("a", 36_000, 60.0, 3.0)];
 
-        // 36000 + 60 - 3 = 36057 → janela termina em 36057
+        // 36000 + 60 - 3 = 36057 -> janela termina em 36057
         // now=36070 está FORA da janela, portanto não retorna ativo
         assert_ne!(
             select_music_by_start_time(&items, 36_070, ScheduleMode::FiniteDay),
@@ -712,7 +623,7 @@ mod tests {
     /// Janela que atravessa meia-noite com duration_sec disponível.
     #[test]
     fn effective_window_crossing_midnight() {
-        // Música começa em 86390, dura 30s, mix 2s → fim efetivo = (86390+28) % 86400 = 18
+        // Música começa em 86390, dura 30s, mix 2s -> fim efetivo = (86390+28) % 86400 = 18
         let items = vec![music_with_duration("late", 86_390, 30.0, 2.0)];
 
         assert_eq!(item_effective_end(&items[0]), Some(18));

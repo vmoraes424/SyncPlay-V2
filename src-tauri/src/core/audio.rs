@@ -1,5 +1,5 @@
+use crate::models::audio::{AudioCommand, AudioItem, PlaybackState};
 use rodio::{Decoder, OutputStream, Sink};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
@@ -10,35 +10,6 @@ use std::time::{Duration, Instant};
 /// Crossfade ao trocar faixa manualmente (play / tecla): saída da anterior e entrada da nova.
 const MANUAL_CROSSFADE_OUT_MS: u64 = 3000;
 const MANUAL_CROSSFADE_IN_MS: u64 = 1500;
-
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct AudioItem {
-    pub id: String,
-    pub path: String,
-    pub mix_end_ms: Option<u64>,
-    pub duration_ms: Option<u64>,
-    pub fade_duration_ms: Option<u64>,
-}
-
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct PlaybackState {
-    pub current_index: Option<usize>,
-    pub current_id: Option<String>,
-    pub is_playing: bool,
-    pub position_ms: u64,
-    pub duration_ms: u64,
-    pub background_ids: Vec<String>,
-    pub background_positions: HashMap<String, u64>,
-}
-
-pub enum AudioCommand {
-    SetQueue(Vec<AudioItem>),
-    PlayIndex(usize),
-    Pause,
-    Resume,
-    Seek(u64),
-    SkipWithFade,
-}
 
 struct ActiveTrack {
     sink: Sink,
@@ -121,16 +92,13 @@ pub fn start_audio_engine() -> (mpsc::Sender<AudioCommand>, Arc<Mutex<PlaybackSt
                         queue = new_queue;
                         // Realinha índices após editar a fila (inserir/remover itens), sem recriar o sink.
                         if let Some(track) = &mut current_track {
-                            if let Some(new_idx) =
-                                queue.iter().position(|i| i.id == track.item.id)
+                            if let Some(new_idx) = queue.iter().position(|i| i.id == track.item.id)
                             {
                                 track.index = new_idx;
                             }
                         }
                         for bt in &mut background_tracks {
-                            if let Some(new_idx) =
-                                queue.iter().position(|i| i.id == bt.item.id)
-                            {
+                            if let Some(new_idx) = queue.iter().position(|i| i.id == bt.item.id) {
                                 bt.index = new_idx;
                             }
                         }
