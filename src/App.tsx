@@ -19,6 +19,7 @@ import type {
   MediaCategory, DirectoryOptionKind, DirectoryOption,
   DirFile, Music, SyncPlayData,
   PlayableItem, ScheduledBlockDto, ScheduleMediaStartDto, ScheduleSelectionDto,
+  MixConfig,
 } from './types';
 import { BlockHeader } from './components/BlockHeader';
 import { PlaylistMusicItem } from './components/PlaylistMusicItem';
@@ -186,7 +187,7 @@ function rawStartSec(music: Music) {
     : null;
 }
 
-function buildPlaylistRuntimeItems(data: SyncPlayData) {
+function buildPlaylistRuntimeItems(data: SyncPlayData, mixConfig: MixConfig | null) {
   const playableItems: PlayableItem[] = [];
   const scheduledBlocks: ScheduledBlockDto[] = [];
 
@@ -201,6 +202,18 @@ function buildPlaylistRuntimeItems(data: SyncPlayData) {
         const fade_duration_ms = mediaMixOutMs(music);
         const playPath = music.path?.trim() || music.path_storage?.trim() || '';
 
+        const mediaType = (music.type ?? '').toLowerCase();
+        const fade_out_time_ms =
+          mediaType === 'music' ? (mixConfig?.music_fade_out_time ?? 0) :
+            mediaType === 'vem' ? 0 :
+              (mixConfig?.media_fade_out_time ?? 0);
+
+        // Manual: música=3 s, mídia=1,5 s, VEM=0 (sem fadeout)
+        const manual_fade_out_ms =
+          mediaType === 'music' ? 3000 :
+            mediaType === 'vem' ? 0 :
+              1500;
+
         if (playPath) {
           playableItems.push({
             id: uniqueId,
@@ -208,6 +221,8 @@ function buildPlaylistRuntimeItems(data: SyncPlayData) {
             mix_end_ms: music.extra?.mix?.mix_end ?? null,
             duration_ms,
             fade_duration_ms,
+            fade_out_time_ms,
+            manual_fade_out_ms,
           });
         }
 
@@ -302,9 +317,9 @@ function buildVisiblePlaylistSlice(
   const lastVisibleIndex = tailExpansion.showAllUntilEnd
     ? orderedBlocks.length
     : Math.min(
-        orderedBlocks.length,
-        defaultLastExclusive + tailExpansion.extraAfterBlocks
-      );
+      orderedBlocks.length,
+      defaultLastExclusive + tailExpansion.extraAfterBlocks
+    );
 
   const hasMoreTail = lastVisibleIndex < orderedBlocks.length;
   const visibleGroups: VisiblePlaylistGroup[] = [];
@@ -400,6 +415,7 @@ function DraggableMidiaItem({
 
 function App() {
   const [data, setData] = useState<SyncPlayData | null>(null);
+  const [mixConfig, setMixConfig] = useState<MixConfig | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -499,11 +515,11 @@ function App() {
     () =>
       data
         ? buildVisiblePlaylistSlice(
-            data,
-            playingId ?? scheduledMusicId,
-            playlistBlockWindow,
-            playlistTailExpansion
-          )
+          data,
+          playingId ?? scheduledMusicId,
+          playlistBlockWindow,
+          playlistTailExpansion
+        )
         : { groups: [] as VisiblePlaylistGroup[], hasMoreTail: false },
     [data, playingId, scheduledMusicId, playlistBlockWindow, playlistTailExpansion]
   );
@@ -750,7 +766,11 @@ function App() {
 
   const fetchPlaylist = async () => {
     try {
-      const jsonStr: string = await invoke("read_playlist", { date: new Date().toISOString().split('T')[0] });
+      const [jsonStr, cfg] = await Promise.all([
+        invoke<string>("read_playlist", { date: new Date().toISOString().split('T')[0] }),
+        fetchConfigSafe<MixConfig>('Configs/mix.json'),
+      ]);
+      setMixConfig(cfg);
       setPlaylistExtraAfterBlocks(0);
       setPlaylistShowAllTail(false);
       setData(JSON.parse(jsonStr));
@@ -788,7 +808,7 @@ function App() {
   useEffect(() => {
     if (!data) return;
 
-    const { playableItems, scheduledBlocks } = buildPlaylistRuntimeItems(data);
+    const { playableItems, scheduledBlocks } = buildPlaylistRuntimeItems(data, mixConfig);
     let cancelled = false;
 
     const clearScheduleTimer = () => {
@@ -871,7 +891,7 @@ function App() {
       cancelled = true;
       clearScheduleTimer();
     };
-  }, [data, scrollToPlaylistMusic]);
+  }, [data, mixConfig, scrollToPlaylistMusic]);
 
   // --- DnD ---
 
@@ -1001,15 +1021,15 @@ function App() {
                                       onTrashRemove={
                                         trashHighlightPlaylistId === uniqueId
                                           ? () => {
-                                              setTrashHighlightPlaylistId(null);
-                                              setData((prev) => {
-                                                if (!prev) return prev;
-                                                return (
-                                                  removeMusicFromBlock(prev, plKey, blockKey, musicKey) ??
-                                                  prev
-                                                );
-                                              });
-                                            }
+                                            setTrashHighlightPlaylistId(null);
+                                            setData((prev) => {
+                                              if (!prev) return prev;
+                                              return (
+                                                removeMusicFromBlock(prev, plKey, blockKey, musicKey) ??
+                                                prev
+                                              );
+                                            });
+                                          }
                                           : undefined
                                       }
                                     />

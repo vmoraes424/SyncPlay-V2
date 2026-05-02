@@ -114,10 +114,15 @@ pub fn start_audio_engine() -> (mpsc::Sender<AudioCommand>, Arc<Mutex<PlaybackSt
                                     if let Some(mut old_track) = current_track.take() {
                                         crossfade_from_previous = old_track.is_playing;
                                         if crossfade_from_previous {
-                                            old_track.fade_out_start_pos =
-                                                Some(old_track.position.as_millis() as u64);
-                                            old_track.fade_out_duration_ms =
-                                                Some(MANUAL_CROSSFADE_OUT_MS);
+                                            let fade_out = old_track
+                                                .item
+                                                .manual_fade_out_ms
+                                                .unwrap_or(MANUAL_CROSSFADE_OUT_MS);
+                                            if fade_out > 0 {
+                                                old_track.fade_out_start_pos =
+                                                    Some(old_track.position.as_millis() as u64);
+                                                old_track.fade_out_duration_ms = Some(fade_out);
+                                            }
                                             background_tracks.push(old_track);
                                         } else {
                                             old_track.sink.stop();
@@ -191,6 +196,7 @@ pub fn start_audio_engine() -> (mpsc::Sender<AudioCommand>, Arc<Mutex<PlaybackSt
             }
 
             let mut auto_play_next: Option<usize> = None;
+            let mut auto_play_is_manual = false;
 
             if let Some(track) = &mut current_track {
                 track.update_position();
@@ -200,6 +206,7 @@ pub fn start_audio_engine() -> (mpsc::Sender<AudioCommand>, Arc<Mutex<PlaybackSt
                     log_debug(&format!("Mix triggered by manual skip! pos_ms: {}", pos_ms));
                     track.mix_triggered = true;
                     auto_play_next = Some(track.index + 1);
+                    auto_play_is_manual = true;
                 }
 
                 // Process Fade In
@@ -278,8 +285,27 @@ pub fn start_audio_engine() -> (mpsc::Sender<AudioCommand>, Arc<Mutex<PlaybackSt
                         if let Ok(decoder) = Decoder::new(BufReader::new(file)) {
                             log_debug(&format!("Auto-playing next index: {}", next_idx));
                             if let Some(mut old_track) = current_track.take() {
-                                old_track.fade_out_start_pos =
-                                    Some(old_track.position.as_millis() as u64);
+                                if auto_play_is_manual {
+                                    // Skip manual (espaço ou clique): usa o fadeout específico
+                                    // do tipo de mídia (música=3 s, mídia=1,5 s, VEM=0).
+                                    let fade_out = old_track
+                                        .item
+                                        .manual_fade_out_ms
+                                        .unwrap_or(MANUAL_CROSSFADE_OUT_MS);
+                                    if fade_out > 0 {
+                                        old_track.fade_out_start_pos =
+                                            Some(old_track.position.as_millis() as u64);
+                                        old_track.fade_out_duration_ms = Some(fade_out);
+                                    }
+                                } else {
+                                    // Mix natural: respeita fade_out_time_ms do arquivo.
+                                    // 0 ou None = sem ramp, toca até o fim.
+                                    let fade_out = old_track.item.fade_out_time_ms.unwrap_or(0);
+                                    if fade_out > 0 {
+                                        old_track.fade_out_start_pos =
+                                            Some(old_track.position.as_millis() as u64);
+                                    }
+                                }
                                 background_tracks.push(old_track);
                             }
                             let sink = Sink::try_new(&stream_handle).unwrap();
@@ -320,17 +346,24 @@ pub fn start_audio_engine() -> (mpsc::Sender<AudioCommand>, Arc<Mutex<PlaybackSt
 
                 // Process Fade Out
                 if let Some(start_pos) = bt.fade_out_start_pos {
+                    // Prioridade: override manual (crossfade por skip/play) → fade_out_time_ms do item.
+                    // fade_duration_ms é reservado para o crossfade do mix (fade-in da nova faixa);
+                    // não é usado aqui para não misturar os dois conceitos.
                     let fade_dur = bt
                         .fade_out_duration_ms
-                        .or(bt.item.fade_duration_ms)
-                        .unwrap_or(2000);
-                    let elapsed = pos_ms.saturating_sub(start_pos);
-                    if fade_dur > 0 && elapsed < fade_dur {
-                        let volume = 1.0 - (elapsed as f32 / fade_dur as f32);
-                        bt.sink.set_volume(volume);
+                        .or(bt.item.fade_out_time_ms)
+                        .unwrap_or(0);
+                    if fade_dur == 0 {
+                        // Sem ramp: toca até o fim naturalmente (sink.empty() removerá a faixa).
                     } else {
-                        bt.sink.set_volume(0.0);
-                        bt.sink.stop(); // Interrompe o áudio para forçar o descarte
+                        let elapsed = pos_ms.saturating_sub(start_pos);
+                        if elapsed < fade_dur {
+                            let volume = 1.0 - (elapsed as f32 / fade_dur as f32);
+                            bt.sink.set_volume(volume);
+                        } else {
+                            bt.sink.set_volume(0.0);
+                            bt.sink.stop();
+                        }
                     }
                 }
             }

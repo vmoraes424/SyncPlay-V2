@@ -23,6 +23,24 @@ export interface MixData {
   mix_total_milesecond?: number;
 }
 
+/** Estrutura do arquivo C:/SyncPlay/Configs/mix.json */
+export interface MixConfig {
+  /** Fadeout de músicas em ms (0 = toca até o fim sem ramp) */
+  music_fade_out_time?: number;
+  /** Fadeout de mídias em ms (0 = toca até o fim sem ramp) */
+  media_fade_out_time?: number;
+  /** Tempos de mix por tipo (reservado para uso futuro) */
+  mix_commercial?: number;
+  mix_bumper?: number;
+  mix_media?: number;
+  mix_others?: number;
+  mix_vem?: number;
+  mix_prefix_and_right_time?: number;
+  mix_right_time?: number;
+  mix_prefix_and_temperatures?: number;
+  mix_music?: number;
+}
+
 export interface ExtraData {
   fixed?: boolean;
   mix?: MixData;
@@ -78,6 +96,10 @@ export interface PlayableItem {
   mix_end_ms: number | null;
   duration_ms: number | null;
   fade_duration_ms: number | null;
+  /** Fadeout automático (mix natural). 0 = sem ramp, toca até o fim. */
+  fade_out_time_ms: number | null;
+  /** Fadeout ao trocar manualmente (espaço ou clique). Música=3000, mídia=1500. */
+  manual_fade_out_ms: number | null;
 }
 
 export interface ScheduledMusicDto {

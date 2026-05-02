@@ -7,7 +7,12 @@ pub struct AudioItem {
     pub path: String,
     pub mix_end_ms: Option<u64>,
     pub duration_ms: Option<u64>,
+    /// Duração do crossfade (fade-in da próxima + fade-out desta, durante o mix).
     pub fade_duration_ms: Option<u64>,
+    /// Fadeout automático (mix natural). 0 ou None = sem ramp, toca até o fim.
+    pub fade_out_time_ms: Option<u64>,
+    /// Fadeout ao trocar manualmente (espaço ou clique). Música=3000, mídia=1500.
+    pub manual_fade_out_ms: Option<u64>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
