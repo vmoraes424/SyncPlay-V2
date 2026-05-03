@@ -121,7 +121,7 @@
 
 .settings-menu-card:hover,
 .settings-submenu-card:hover {
-  border-color: rgba(96, 165, 250, 0.38);
+  border-color: rgba(255, 255, 255, 0.22);
   background:
     linear-gradient(135deg, rgba(28, 73, 65, 0.58), rgba(255, 255, 255, 0.05)),
     rgba(255, 255, 255, 0.05);
@@ -231,13 +231,13 @@
   padding: 10px 12px;
   border-radius: 10px;
   border-left: 3px solid var(--accent-color);
-  background: rgba(59, 130, 246, 0.1);
+  background: rgba(255, 255, 255, 0.06);
   font-size: 0.88rem;
 }
 
 .settings-section h5 {
   padding-left: 10px;
-  color: rgba(191, 219, 254, 0.92);
+  color: rgba(229, 231, 235, 0.92);
   font-size: 0.82rem;
 }
 
@@ -301,8 +301,8 @@
 
 .settings-item__main code {
   padding: 4px 7px;
-  color: #bfdbfe;
-  background: rgba(59, 130, 246, 0.16);
+  color: #d4d4d4;
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .settings-item__main em {

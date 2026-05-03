@@ -399,8 +399,8 @@ function DraggableMidiaItem({
       style={style}
       id={`midia-item-${idx}`}
       className={[
-        "flex items-center gap-2.5 px-3 h-9 cursor-pointer border-b border-white/5 select-none transition-colors duration-150",
-        isSelected ? "bg-blue-500/15 border-l-2 border-l-blue-500" : "hover:bg-white/5",
+        "flex items-center gap-2.5 px-3 h-9 cursor-pointer border-b border-[#353535]/50 select-none transition-colors duration-150",
+        isSelected ? "bg-white/8 border-l-2 border-l-[#525252]" : "hover:bg-white/5",
         isCueing ? "bg-violet-500/12 border-l-2 border-l-violet-400" : "",
       ].join(" ")}
       title={file.path}
@@ -954,22 +954,22 @@ function App() {
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
-      <div className="grid grid-cols-2 h-[calc(100vh-50px)]">
+      <div className="grid grid-cols-2 h-[calc(100vh-50px)] bg-[#262626]">
 
         {/* COLUNA ESQUERDA (playlist + cabeçalho fixo) */}
         <div
           className={[
-            "relative flex min-h-0 flex-col overflow-hidden",
+            "relative flex min-h-0 flex-col overflow-hidden bg-[#262626] border-r border-[#353535]",
             isOverPlaylist
-              ? "border-emerald-400/60 shadow-[0_0_0_2px_rgba(52,211,153,0.3),0_4px_30px_rgba(0,0,0,0.1)] bg-slate-800/85"
-              : "border-white/10",
+              ? "border-r-emerald-400/60 shadow-[0_0_0_2px_rgba(52,211,153,0.3),0_4px_30px_rgba(0,0,0,0.1)]"
+              : "",
           ].join(" ")}
         >
           {/* Faixa atual: capa + artista / música */}
           <MusicInfo nowPlayingMusic={nowPlayingMusic} />
           {/* Reserva: waveform */}
           <div
-            className="h-14 shrink-0 border-b border-white/10"
+            className="h-14 shrink-0 border-b border-[#353535]"
             aria-hidden
           />
           <PlaylistPlaybackBar
@@ -1020,7 +1020,7 @@ function App() {
                             <div className="playlist-block-body">
                               {musicEntries.length === 0 ? (
                                 <div className="px-2 py-1">
-                                  <div className="block-empty-drop relative rounded-xl border border-dashed border-white/10 mx-1">
+                                  <div className="block-empty-drop relative rounded-xl border border-dashed border-[#353535] mx-1">
                                     <DroppableSlot id={`slot-end-${plKey}|${blockKey}`} />
                                     <p className="absolute inset-0 flex items-center justify-center pointer-events-none m-0 text-[0.78rem] text-slate-500 italic">
                                       Arraste mídias aqui
@@ -1096,10 +1096,10 @@ function App() {
                     </div>
                   ))}
                   {playlistHasMoreTail && (
-                    <div className="flex flex-wrap gap-2 px-3 py-3 border-t border-white/10 mt-1">
+                    <div className="flex flex-wrap gap-2 px-3 py-3 border-t border-[#353535] mt-1">
                       <button
                         type="button"
-                        className="flex-1 min-w-[140px] rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-[0.8rem] text-white/90 hover:bg-white/10 transition-colors"
+                        className="flex-1 min-w-[140px] rounded-lg border border-[#353535] bg-white/5 px-3 py-2 text-[0.8rem] text-white/90 hover:bg-white/10 transition-colors"
                         onClick={loadNextPlaylistBlock}
                       >
                         Carregar o próximo bloco
@@ -1120,12 +1120,12 @@ function App() {
         </div>
 
         {/* COLUNA DIREITA (#midias)*/}
-        <div id="midias" className="flex flex-col overflow-hidden p-0">
-          <div className="px-5 pt-5 pb-3 border-b border-white/10 flex flex-col gap-2.5 shrink-0">
+        <div id="midias" className="flex flex-col overflow-hidden p-0 bg-[#262626]">
+          <div className="px-5 pt-5 pb-3 border-b border-[#353535] flex flex-col gap-2.5 shrink-0">
             <h2 className="text-[1rem] font-semibold text-slate-400 tracking-[0.04em] uppercase">📂 Biblioteca de Mídias</h2>
             <div className="flex gap-2">
               <select
-                className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-white/90 text-[0.8rem] outline-none transition-colors focus:border-blue-500 [&>option]:bg-slate-900 [&>option]:text-white"
+                className="flex-1 bg-white/5 border border-[#353535] rounded-lg px-3 py-1.5 text-white/90 text-[0.8rem] outline-none transition-colors focus:border-neutral-500 [&>option]:bg-[#262626] [&>option]:text-white"
                 value={mediaCategory}
                 onChange={(e) => setMediaCategory(e.target.value as MediaCategory)}
               >
@@ -1136,7 +1136,7 @@ function App() {
               </select>
 
               <select
-                className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-white/90 text-[0.8rem] outline-none transition-colors focus:border-blue-500 disabled:opacity-50 [&>option]:bg-slate-900 [&>option]:text-white"
+                className="flex-1 bg-white/5 border border-[#353535] rounded-lg px-3 py-1.5 text-white/90 text-[0.8rem] outline-none transition-colors focus:border-neutral-500 disabled:opacity-50 [&>option]:bg-[#262626] [&>option]:text-white"
                 value={directoryValue}
                 onChange={(e) => {
                   setDirectoryValue(e.target.value);
@@ -1157,13 +1157,13 @@ function App() {
               </select>
             </div>
 
-            <div className="flex items-center gap-2 bg-white/4 border border-white/10 rounded-lg px-3 py-1.5">
+            <div className="flex items-center gap-2 bg-white/3 border border-[#353535] rounded-lg px-3 py-1.5">
               <span className="text-[0.85rem] opacity-70" aria-hidden>🔍</span>
               <input id="buscaMidia" className="flex-1 bg-transparent border-none outline-none text-white/90 text-[0.85rem] placeholder:text-slate-500"
                 placeholder="Buscar mídia..." value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)} />
               {searchQuery && (
-                <span className="text-[0.72rem] text-blue-400 font-semibold whitespace-nowrap">
+                <span className="text-[0.72rem] text-neutral-400 font-semibold whitespace-nowrap">
                   {filteredFiles.length} resultado{filteredFiles.length !== 1 ? "s" : ""}
                 </span>
               )}
@@ -1180,7 +1180,7 @@ function App() {
             )}
             {dirLoading && (
               <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-400 text-[0.88rem]">
-                <div className="w-8 h-8 border-3 border-white/10 border-t-blue-500 rounded-full animate-spin-custom" />
+                <div className="w-8 h-8 border-3 border-[#353535] border-t-neutral-400 rounded-full animate-spin-custom" />
                 <p>Lendo diretório...</p>
               </div>
             )}
@@ -1240,7 +1240,7 @@ function App() {
           </div>
 
           {cueFile && (
-            <div className="shrink-0 px-4 py-2.5 border-t border-white/10 bg-violet-500/15 flex flex-col gap-1.5">
+            <div className="shrink-0 px-4 py-2.5 border-t border-[#353535] bg-[#1f1f1f] flex flex-col gap-1.5">
               <div className="flex items-center gap-2">
                 <span className="text-[0.6rem] font-bold tracking-[0.08em] bg-violet-700 text-white px-1.5 py-0.5 rounded shrink-0">CUE</span>
                 <span className="text-[0.8rem] text-violet-300 whitespace-nowrap overflow-hidden text-ellipsis">
@@ -1269,8 +1269,8 @@ function App() {
       <DragOverlay>
         {activeFile && (
           <div className={[
-            "flex items-center gap-2.5 px-3 h-12 max-w-[360px] backdrop-blur-md bg-slate-900/90 border rounded-lg shadow-[0_8px_32px_rgba(0,0,0,0.4)] cursor-grabbing opacity-95 pointer-events-none",
-            isOverPlaylist ? "border-emerald-500/70 bg-[rgba(16,50,35,0.95)] shadow-[0_8px_32px_rgba(52,211,153,0.25)]" : "border-white/20",
+            "flex items-center gap-2.5 px-3 h-12 max-w-[360px] backdrop-blur-md bg-[#262626] border rounded-lg shadow-[0_8px_32px_rgba(0,0,0,0.5)] cursor-grabbing opacity-95 pointer-events-none border-[#353535]",
+            isOverPlaylist ? "border-emerald-500/70 bg-[rgba(16,50,35,0.95)] shadow-[0_8px_32px_rgba(52,211,153,0.25)]" : "",
           ].join(" ")}>
             <span className="text-base shrink-0" aria-hidden>🎵</span>
             <span className="flex-1 text-[0.82rem] text-white/90 whitespace-nowrap overflow-hidden text-ellipsis">{activeFile.name.replace(/\.[^/.]+$/, "")}</span>

@@ -32,7 +32,7 @@ export function PlaylistPlaybackBar({
       : pauseBco;
 
   return (
-    <div className="flex h-12 shrink-0 items-center gap-3 border-b border-white/10 px-2">
+    <div className="flex h-12 shrink-0 items-center gap-3 border-b border-[#353535] px-2">
       <div className="flex shrink-0 items-center gap-1.5">
         <button
           type="button"

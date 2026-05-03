@@ -104,14 +104,14 @@ export function PlaylistMusicItem({
     'playlist-music-item flex flex-col rounded-md transition-all duration-200 border mx-2 px-3 py-2',
     trashHighlighted ? 'playlist-music-item--trash-selected' : '',
     isDisabled
-      ? 'bg-slate-950/35 border-slate-500/20 border-dashed opacity-45 grayscale saturate-0'
+      ? 'bg-black/30 border-[#353535]/55 border-dashed opacity-45 grayscale saturate-0'
       : isCurrentlyPlaying
         ? 'playing'
         : isBackgroundPlaying
           ? 'border-violet-500/25'
           : isScheduledUpcoming
             ? 'playlist-item--scheduled-upcoming'
-            : 'bg-white/[0.025] border-white/[0.06]',
+            : 'bg-white/[0.02] border-[#353535]/55',
   ].filter(Boolean).join(' ');
 
   const itemStyle: React.CSSProperties = {
@@ -197,7 +197,7 @@ export function PlaylistMusicItem({
                   ? 'text-slate-500 cursor-not-allowed bg-black/30'
                   : isCurrentlyPlaying && isPlaying
                     ? 'bg-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.4)] animate-pulse-btn'
-                    : 'bg-black/30 hover:bg-blue-500/60 hover:shadow-[0_0_10px_rgba(59,130,246,0.4)]',
+                    : 'bg-black/30 hover:bg-[#353535]/90 hover:shadow-[0_0_10px_rgba(0,0,0,0.35)]',
               ].join(' ')}
               onClick={onPlay}
               disabled={isDisabled}
