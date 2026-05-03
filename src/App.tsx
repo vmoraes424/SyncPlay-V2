@@ -25,6 +25,7 @@ import { BlockHeader } from './components/BlockHeader';
 import { PlaylistMusicItem } from './components/PlaylistMusicItem';
 import { MusicInfo } from './components/playlist/MusicInfo';
 import { PlaylistCurrentBlock } from './components/playlist/PlaylistCurrentBlock';
+import { PlaylistLoadMoreControls } from './components/playlist/PlaylistLoadMoreControls';
 import { PlaylistPlaybackBar } from './components/playlist/PlaylistPlaybackBar';
 import { SettingsDock } from './components/settings/SettingsDock';
 import { getAppSetting } from './settings/settingsStorage';
@@ -52,6 +53,22 @@ interface PlaylistBlockWindow {
 }
 
 const DEFAULT_PLAYLIST_BLOCK_WINDOW: PlaylistBlockWindow = { before: 2, after: 2 };
+
+function formatPlaylistDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function todayPlaylistDate() {
+  return formatPlaylistDate(new Date());
+}
+
+function addDaysToPlaylistDate(dateString: string, days: number) {
+  const [year, month, day] = dateString.split('-').map(Number);
+  return formatPlaylistDate(new Date(year, month - 1, day + days));
+}
 
 function parsePositiveIntSetting(value: unknown, fallback: number): number {
   if (typeof value === 'number' && Number.isFinite(value)) {
@@ -454,6 +471,7 @@ function DraggableMidiaItem({
 function App() {
   const [data, setData] = useState<SyncPlayData | null>(null);
   const [mixConfig, setMixConfig] = useState<MixConfig | null>(null);
+  const [playlistDate, setPlaylistDate] = useState(() => todayPlaylistDate());
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -586,13 +604,50 @@ function App() {
     [data, playingId]
   );
 
-  const loadNextPlaylistBlock = useCallback(() => {
-    setPlaylistExtraAfterBlocks((n) => n + 1);
+  const fetchPlaylist = useCallback(async (date: string, showAllTail = false) => {
+    setLoading(true);
+    setError("");
+    try {
+      const [jsonStr, cfg] = await Promise.all([
+        invoke<string>("read_playlist", { date }),
+        fetchConfigSafe<MixConfig>('Configs/mix.json'),
+      ]);
+      setMixConfig(cfg);
+      setPlaylistDate(date);
+      setPlaylistExtraAfterBlocks(0);
+      setPlaylistShowAllTail(showAllTail);
+      setData(JSON.parse(jsonStr));
+    } catch (err) {
+      setPlaylistExtraAfterBlocks(0);
+      setPlaylistShowAllTail(false);
+      setError(`Erro ao carregar a playlist: ${err}`);
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
+  const loadNextPlaylistDay = useCallback((showAllTail = false) => {
+    void fetchPlaylist(addDaysToPlaylistDate(playlistDate, 1), showAllTail);
+  }, [fetchPlaylist, playlistDate]);
+
+  const loadNextPlaylistBlock = useCallback(() => {
+    if (playlistHasMoreTail) {
+      setPlaylistExtraAfterBlocks((n) => n + 1);
+      return;
+    }
+
+    loadNextPlaylistDay(false);
+  }, [loadNextPlaylistDay, playlistHasMoreTail]);
+
   const loadAllPlaylistBlocksUntilEnd = useCallback(() => {
-    setPlaylistShowAllTail(true);
-  }, []);
+    if (playlistHasMoreTail) {
+      setPlaylistShowAllTail(true);
+      return;
+    }
+
+    loadNextPlaylistDay(true);
+  }, [loadNextPlaylistDay, playlistHasMoreTail]);
 
   const loadDirectories = useCallback(async (paths: string[]) => {
     setDirLoading(true);
@@ -826,24 +881,7 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
-  const fetchPlaylist = async () => {
-    try {
-      const [jsonStr, cfg] = await Promise.all([
-        invoke<string>("read_playlist", { date: new Date().toISOString().split('T')[0] }),
-        fetchConfigSafe<MixConfig>('Configs/mix.json'),
-      ]);
-      setMixConfig(cfg);
-      setPlaylistExtraAfterBlocks(0);
-      setPlaylistShowAllTail(false);
-      setData(JSON.parse(jsonStr));
-    } catch (err) {
-      setPlaylistExtraAfterBlocks(0);
-      setPlaylistShowAllTail(false);
-      setError(`Erro ao carregar a playlist: ${err}`); setData(null);
-    } finally { setLoading(false); }
-  };
-
-  useEffect(() => { fetchPlaylist(); }, []);
+  useEffect(() => { void fetchPlaylist(todayPlaylistDate()); }, [fetchPlaylist]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1143,24 +1181,11 @@ function App() {
                         })}
                       </div>
                     ))}
-                    {playlistHasMoreTail && (
-                      <div className="flex flex-wrap gap-2 px-3 py-3 border-t border-[#353535] mt-1">
-                        <button
-                          type="button"
-                          className="flex-1 min-w-[140px] rounded-lg border border-[#353535] bg-white/5 px-3 py-2 text-[0.8rem] text-white/90 hover:bg-white/10 transition-colors"
-                          onClick={loadNextPlaylistBlock}
-                        >
-                          Carregar o próximo bloco
-                        </button>
-                        <button
-                          type="button"
-                          className="flex-1 min-w-[140px] rounded-lg border border-emerald-500/35 bg-emerald-600/15 px-3 py-2 text-[0.8rem] text-emerald-100 hover:bg-emerald-600/25 transition-colors"
-                          onClick={loadAllPlaylistBlocksUntilEnd}
-                        >
-                          Carregar todos
-                        </button>
-                      </div>
-                    )}
+                    <PlaylistLoadMoreControls
+                      hasMoreTail={playlistHasMoreTail}
+                      onLoadNext={loadNextPlaylistBlock}
+                      onLoadAll={loadAllPlaylistBlocksUntilEnd}
+                    />
                   </div>
                 )}
               </div>
