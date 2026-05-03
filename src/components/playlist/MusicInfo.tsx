@@ -41,15 +41,12 @@ export function MusicInfo({ nowPlayingMusic }: MusicInfoProps) {
               return (
                 <>
                   <span
-                    className={[
-                      "truncate text-[0.72rem] font-bold",
-                      artist ? "text-white" : "text-slate-500",
-                    ].join(" ")}
+                    className="truncate text-md italic font-bold text-[#43a035]"
                     title={artist || undefined}
                   >
                     {artist || null}
                   </span>
-                  <span className="truncate text-[0.78rem] font-semibold text-white/90" title={track}>
+                  <span className="truncate text-xs font-semibold text-[#43a035]" title={track}>
                     {track}
                   </span>
                 </>
