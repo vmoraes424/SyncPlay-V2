@@ -1,18 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import {
-  DndContext,
-  DragOverlay,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  useDroppable,
-  useDraggable,
-  DragEndEvent,
-  DragStartEvent,
-} from "@dnd-kit/core";
-import { CSS } from "@dnd-kit/utilities";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import "./App.css";
 import type {
@@ -30,19 +18,8 @@ import { PlaylistPlaybackBar } from './components/playlist/PlaylistPlaybackBar';
 import { SettingsDock } from './components/settings/SettingsDock';
 import { SECONDS_PER_DAY, usePlaylistData } from './hooks/usePlaylistData';
 import { useSyncplayLibrary } from './hooks/useSyncplayLibrary';
-import { formatSecondsOfDay } from './time';
+import { formatSecondsOfDay, formatTime } from './time';
 import { SyncplayLibraryProvider } from './library/SyncplayLibraryContext';
-
-type PlaylistItemLocation = {
-  plKey: string;
-  blockKey: string;
-  musicKey: string;
-};
-
-type PlaylistItemDragData = PlaylistItemLocation & {
-  uniqueId: string;
-  music: Music;
-};
 
 async function fetchConfigSafe<T>(filename: string): Promise<T | null> {
   try {
@@ -53,62 +30,6 @@ async function fetchConfigSafe<T>(filename: string): Promise<T | null> {
   }
 }
 
-function formatTime(seconds: number) {
-  if (isNaN(seconds) || seconds < 0) return "0:00";
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${s < 10 ? "0" : ""}${s}`;
-}
-
-/**
- * Insere uma nova Music no bloco indicado.
- * Se beforeKey === null → append ao final do bloco.
- * Se beforeKey === string → insere ANTES dessa chave.
- */
-function insertMusic(
-  data: SyncPlayData,
-  file: DirFile,
-  plKey: string,
-  blockKey: string,
-  beforeKey: string | null,
-  libraryExtra?: Music['extra']
-): SyncPlayData {
-  const block = data.playlists[plKey].blocks[blockKey];
-  const mediaKind = blockMediaKind(block);
-  const prev = blockMediaRecord(block);
-  const entries = Object.entries(prev);
-  const newKey = `dropped-${Date.now()}`;
-  const newMusic: Music = {
-    text: file.name.replace(/\.[^/.]+$/, ""),
-    path: file.path,
-    type: mediaKind === "commercials" ? "commercial" : "music",
-    ...(libraryExtra && Object.keys(libraryExtra).length > 0 ? { extra: { ...libraryExtra } } : {}),
-  };
-
-  const insertIdx =
-    beforeKey === null
-      ? entries.length
-      : entries.findIndex(([k]) => k === beforeKey);
-
-  entries.splice(insertIdx === -1 ? entries.length : insertIdx, 0, [newKey, newMusic]);
-
-  const updatedMedia = Object.fromEntries(entries);
-  const nextBlock = setBlockMediaRecord(block, mediaKind, updatedMedia);
-
-  return {
-    ...data,
-    playlists: {
-      ...data.playlists,
-      [plKey]: {
-        ...data.playlists[plKey],
-        blocks: {
-          ...data.playlists[plKey].blocks,
-          [blockKey]: nextBlock,
-        },
-      },
-    },
-  };
-}
 
 /**
  * Remove uma mídia do bloco (mesma convenção que `blockMediaRecord`: prioriza `commercials` se não vazio).
@@ -177,135 +98,6 @@ function setBlockMediaRecord(
   return mediaKind === 'commercials'
     ? { ...block, commercials: media }
     : { ...block, musics: media };
-}
-
-function parsePlaylistItemTarget(value: string): PlaylistItemLocation | null {
-  const [plKey, blockKey, musicKey] = value.split("|");
-  if (!plKey || !blockKey || !musicKey) return null;
-  return { plKey, blockKey, musicKey };
-}
-
-function beforeKeyForPlaylistTarget(
-  data: SyncPlayData,
-  target: PlaylistItemLocation,
-  placement: 'before' | 'after'
-) {
-  if (placement === 'before') return target.musicKey;
-
-  const block = data.playlists[target.plKey]?.blocks[target.blockKey];
-  if (!block) return null;
-
-  const keys = Object.keys(blockMediaRecord(block));
-  const currentIndex = keys.indexOf(target.musicKey);
-  if (currentIndex === -1 || currentIndex === keys.length - 1) return null;
-  return keys[currentIndex + 1];
-}
-
-function resolvePlaylistDropTarget(
-  data: SyncPlayData,
-  overId: string,
-  placement: 'before' | 'after'
-): { plKey: string; blockKey: string; beforeKey: string | null } | null {
-  if (overId.startsWith("slot-before-")) {
-    const target = parsePlaylistItemTarget(overId.replace("slot-before-", ""));
-    if (!target) return null;
-    return { plKey: target.plKey, blockKey: target.blockKey, beforeKey: target.musicKey };
-  }
-
-  if (overId.startsWith("slot-end-")) {
-    const [plKey, blockKey] = overId.replace("slot-end-", "").split("|");
-    if (!plKey || !blockKey) return null;
-    return { plKey, blockKey, beforeKey: null };
-  }
-
-  if (overId.startsWith("playlist-item-")) {
-    const target = parsePlaylistItemTarget(overId.replace("playlist-item-", ""));
-    if (!target) return null;
-    return {
-      plKey: target.plKey,
-      blockKey: target.blockKey,
-      beforeKey: beforeKeyForPlaylistTarget(data, target, placement),
-    };
-  }
-
-  return null;
-}
-
-function moveMusicInPlaylist(
-  data: SyncPlayData,
-  source: PlaylistItemLocation,
-  target: { plKey: string; blockKey: string; beforeKey: string | null }
-): SyncPlayData {
-  const sourceBlock = data.playlists[source.plKey]?.blocks[source.blockKey];
-  const targetBlock = data.playlists[target.plKey]?.blocks[target.blockKey];
-  if (!sourceBlock || !targetBlock) return data;
-
-  const sourceKind = blockMediaKind(sourceBlock);
-  const targetKind = blockMediaKind(targetBlock);
-  const sourceEntries = Object.entries(blockMediaRecord(sourceBlock));
-  const sourceEntry = sourceEntries.find(([key]) => key === source.musicKey);
-  if (!sourceEntry) return data;
-
-  if (source.plKey === target.plKey && source.blockKey === target.blockKey && sourceKind === targetKind) {
-    if (target.beforeKey === source.musicKey) return data;
-
-    const nextEntries = sourceEntries.filter(([key]) => key !== source.musicKey);
-    const insertIndex = target.beforeKey === null
-      ? nextEntries.length
-      : nextEntries.findIndex(([key]) => key === target.beforeKey);
-
-    nextEntries.splice(insertIndex === -1 ? nextEntries.length : insertIndex, 0, sourceEntry);
-
-    return {
-      ...data,
-      playlists: {
-        ...data.playlists,
-        [source.plKey]: {
-          ...data.playlists[source.plKey],
-          blocks: {
-            ...data.playlists[source.plKey].blocks,
-            [source.blockKey]: setBlockMediaRecord(sourceBlock, sourceKind, Object.fromEntries(nextEntries)),
-          },
-        },
-      },
-    };
-  }
-
-  const remainingSourceEntries = sourceEntries.filter(([key]) => key !== source.musicKey);
-  const targetEntries = Object.entries(blockMediaRecord(targetBlock));
-  const targetInsertIndex = target.beforeKey === null
-    ? targetEntries.length
-    : targetEntries.findIndex(([key]) => key === target.beforeKey);
-  const targetKey = targetEntries.some(([key]) => key === source.musicKey)
-    ? `moved-${Date.now()}`
-    : source.musicKey;
-
-  targetEntries.splice(
-    targetInsertIndex === -1 ? targetEntries.length : targetInsertIndex,
-    0,
-    [targetKey, sourceEntry[1]]
-  );
-
-  const sourceBlockNext = setBlockMediaRecord(sourceBlock, sourceKind, Object.fromEntries(remainingSourceEntries));
-  const targetBlockNext = setBlockMediaRecord(targetBlock, targetKind, Object.fromEntries(targetEntries));
-
-  const nextPlaylists = { ...data.playlists };
-  nextPlaylists[source.plKey] = {
-    ...nextPlaylists[source.plKey],
-    blocks: {
-      ...nextPlaylists[source.plKey].blocks,
-      [source.blockKey]: sourceBlockNext,
-    },
-  };
-  nextPlaylists[target.plKey] = {
-    ...nextPlaylists[target.plKey],
-    blocks: {
-      ...nextPlaylists[target.plKey].blocks,
-      [target.blockKey]: targetBlockNext,
-    },
-  };
-
-  return { ...data, playlists: nextPlaylists };
 }
 
 function musicForPlaylistItemId(data: SyncPlayData | null, uniqueId: string | null): Music | null {
@@ -521,17 +313,7 @@ function applyScheduleMediaDiscards(
   return changed ? { ...data, playlists } : data;
 }
 
-// --- DroppableSlot ---
-// Linha fina entre os itens da playlist — torna-se o target do drop.
-
-function DroppableSlot({ id }: { id: string }) {
-  const { setNodeRef, isOver } = useDroppable({ id });
-  return <div ref={setNodeRef} className={`drop-slot${isOver ? " drop-slot-active" : ""}`} />;
-}
-
-// --- DraggableMidiaItem ---
-
-interface DraggableMidiaProps {
+interface LibraryMediaListItemProps {
   file: DirFile;
   idx: number;
   isSelected: boolean;
@@ -542,7 +324,7 @@ interface DraggableMidiaProps {
   onCue: (e: React.MouseEvent) => void;
 }
 
-function DraggableMidiaItem({
+function LibraryMediaListItem({
   file,
   idx,
   isSelected,
@@ -551,22 +333,9 @@ function DraggableMidiaItem({
   onSelect,
   onDoubleClick,
   onCue,
-}: DraggableMidiaProps) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: file.path,
-    data: { file },
-  });
-
-  const style: React.CSSProperties = {
-    transform: CSS.Translate.toString(transform),
-    opacity: isDragging ? 0.4 : 1,
-    cursor: isDragging ? "grabbing" : "grab",
-  };
-
+}: LibraryMediaListItemProps) {
   return (
     <div
-      ref={setNodeRef}
-      style={style}
       id={`midia-item-${idx}`}
       className={[
         "flex items-center gap-2.5 px-3 h-9 cursor-pointer border-b border-[#353535]/50 select-none transition-colors duration-150",
@@ -576,74 +345,21 @@ function DraggableMidiaItem({
       title={file.path}
       onClick={onSelect}
       onDoubleClick={onDoubleClick}
-      {...listeners}
-      {...attributes}
     >
       <button
+        type="button"
         className={[
           "w-[26px] h-[26px] rounded-full flex items-center justify-center text-xs text-white/90 shrink-0 transition-all duration-200",
           isCuePlaying ? "bg-violet-700 animate-pulse-cue" : "bg-white/10 hover:bg-violet-400 hover:scale-110",
         ].join(" ")}
         title={isCuePlaying ? "Parar CUE" : "Preview CUE"}
         onClick={onCue}
-        onPointerDown={e => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
       >
         {isCuePlaying ? "⏸" : "▶"}
       </button>
       <span className="flex-1 text-[0.82rem] text-white/90 whitespace-nowrap overflow-hidden text-ellipsis">{file.name.replace(/\.[^/.]+$/, "")}</span>
       <span className="text-[0.62rem] bg-white/10 text-slate-400 px-1.5 py-0.5 rounded font-semibold shrink-0">{file.name.split(".").pop()?.toUpperCase()}</span>
-    </div>
-  );
-}
-
-interface PlaylistDragDropItemProps {
-  id: string;
-  item: PlaylistItemDragData;
-  setPlaylistItemRef: (node: HTMLDivElement | null) => void;
-  children: React.ReactNode;
-}
-
-function PlaylistDragDropItem({
-  id,
-  item,
-  setPlaylistItemRef,
-  children,
-}: PlaylistDragDropItemProps) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef: setDraggableNodeRef,
-    transform,
-    isDragging,
-  } = useDraggable({
-    id,
-    data: { playlistItem: item },
-  });
-  const { setNodeRef: setDroppableNodeRef, isOver } = useDroppable({
-    id: `playlist-item-${item.plKey}|${item.blockKey}|${item.musicKey}`,
-  });
-
-  const setRefs = useCallback((node: HTMLDivElement | null) => {
-    setDraggableNodeRef(node);
-    setDroppableNodeRef(node);
-    setPlaylistItemRef(node);
-  }, [setDraggableNodeRef, setDroppableNodeRef, setPlaylistItemRef]);
-
-  const style: React.CSSProperties = {
-    transform: CSS.Translate.toString(transform),
-    opacity: isDragging ? 0.35 : 1,
-  };
-
-  return (
-    <div
-      ref={setRefs}
-      className={`playlist-item-drop-target${isOver ? " playlist-item-drop-target--over" : ""}`}
-      style={style}
-      data-playlist-music-id={item.uniqueId}
-      {...listeners}
-      {...attributes}
-    >
-      {children}
     </div>
   );
 }
@@ -688,11 +404,6 @@ function App() {
   const lastPlaybackDiscardAnchorRef = useRef<string | null>(null);
   const playlistItemRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
-  // DnD
-  const [activeFile, setActiveFile] = useState<DirFile | null>(null);
-  const [activePlaylistMusic, setActivePlaylistMusic] = useState<PlaylistItemDragData | null>(null);
-  const [isOverPlaylist, setIsOverPlaylist] = useState(false);
-
   // Coluna Direita (Selects & Files)
   const [mediaCategory, setMediaCategory] = useState<MediaCategory>('unset');
   const [directoryOptions, setDirectoryOptions] = useState<DirectoryOption[]>([]);
@@ -714,6 +425,7 @@ function App() {
     playlistFilterVis,
     libraryYearDecade,
     showNameMusicFiles,
+    showNameCommercialFiles,
     showNameMediaFiles,
     playlistFilterFocus,
     applyPlaylistFilterClick,
@@ -721,7 +433,6 @@ function App() {
     musicStyleMap,
     musicRhythmMap,
     musicNationalityMap,
-    getDroppedMusicExtra,
   } = useSyncplayLibrary({
     dirFiles,
     searchQuery,
@@ -1181,70 +892,12 @@ function App() {
     });
   }, [playingId, recalculatePlaylistDiscards, scheduledMusicId]);
 
-  // --- DnD ---
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
-  );
-
-  const handleDragStart = (event: DragStartEvent) => {
-    const file = event.active.data.current?.file as DirFile | undefined;
-    if (file) setActiveFile(file);
-    const playlistItem = event.active.data.current?.playlistItem as PlaylistItemDragData | undefined;
-    if (playlistItem) setActivePlaylistMusic(playlistItem);
-  };
-
-  const handleDragOver = (event: any) => {
-    const id = event.over?.id as string ?? null;
-    setIsOverPlaylist(!!id && (id.startsWith("slot-") || id.startsWith("playlist-item-")));
-  };
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    setActiveFile(null);
-    setActivePlaylistMusic(null);
-    setIsOverPlaylist(false);
-    if (!over || !data) return;
-
-    const file = active.data.current?.file as DirFile;
-    const playlistItem = active.data.current?.playlistItem as PlaylistItemLocation | undefined;
-    if (!file && !playlistItem) return;
-
-    const overId = over.id as string;
-    const activeRect = active.rect.current.translated;
-    const placement = activeRect && activeRect.top + activeRect.height / 2 > over.rect.top + over.rect.height / 2
-      ? 'after'
-      : 'before';
-    const target = resolvePlaylistDropTarget(data, overId, placement);
-    if (!target) return;
-
-    if (file) {
-      const libExtra = getDroppedMusicExtra(file.name);
-      setData((prev) =>
-        prev ? insertMusic(prev, file, target.plKey, target.blockKey, target.beforeKey, libExtra) : prev
-      );
-      return;
-    }
-
-    if (playlistItem) {
-      setData(prev => prev ? moveMusicInPlaylist(prev, playlistItem, target) : prev);
-    }
-  };
-
   return (
     <SyncplayLibraryProvider value={libraryMaps}>
-    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
       <div className="grid grid-cols-2 h-[calc(100vh-50px)] bg-[#262626]">
 
         {/* COLUNA ESQUERDA (playlist + cabeçalho fixo) */}
-        <div
-          className={[
-            "relative flex min-h-0 flex-col overflow-hidden bg-[#262626] border-r border-[#353535]",
-            isOverPlaylist
-              ? "border-r-emerald-400/60 shadow-[0_0_0_2px_rgba(52,211,153,0.3),0_4px_30px_rgba(0,0,0,0.1)]"
-              : "",
-          ].join(" ")}
-        >
+        <div className="relative flex min-h-0 flex-col overflow-hidden bg-[#262626] border-r border-[#353535]">
           {/* Faixa atual: capa + artista / música */}
           <MusicInfo nowPlayingMusic={nowPlayingMusic} />
           {/* Reserva: waveform */}
@@ -1306,10 +959,9 @@ function App() {
                               <div className="playlist-block-body">
                                 {musicEntries.length === 0 ? (
                                   <div className="px-2 py-1">
-                                    <div className="block-empty-drop relative rounded-xl border border-dashed border-[#353535] mx-1">
-                                      <DroppableSlot id={`slot-end-${plKey}|${blockKey}`} />
-                                      <p className="absolute inset-0 flex items-center justify-center pointer-events-none m-0 text-[0.78rem] text-slate-500 italic">
-                                        Arraste mídias aqui
+                                    <div className="rounded-xl border border-dashed border-[#353535] mx-1 px-3 py-6 text-center">
+                                      <p className="m-0 text-[0.78rem] text-slate-500 italic">
+                                        Nenhuma mídia neste bloco
                                       </p>
                                     </div>
                                   </div>
@@ -1324,32 +976,22 @@ function App() {
                                         legacyBool(music.discarded) ||
                                         legacyBool(music.manualDiscard ?? music.manual_discard) ||
                                         scheduleStart?.active === false;
-                                      const playlistDragItem = {
-                                        plKey,
-                                        blockKey,
-                                        musicKey,
-                                        uniqueId,
-                                        music,
-                                      };
                                       return (
                                         <div
                                           key={musicKey}
+                                          ref={(node) => {
+                                            if (node) playlistItemRefs.current[uniqueId] = node;
+                                            else delete playlistItemRefs.current[uniqueId];
+                                          }}
+                                          data-playlist-music-id={uniqueId}
                                         >
-                                          <DroppableSlot id={`slot-before-${plKey}|${blockKey}|${musicKey}`} />
-                                          <PlaylistDragDropItem
-                                            id={uniqueId}
-                                            item={playlistDragItem}
-                                            setPlaylistItemRef={(node) => {
-                                              if (node) playlistItemRefs.current[uniqueId] = node;
-                                              else delete playlistItemRefs.current[uniqueId];
-                                            }}
-                                          >
                                             <PlaylistMusicItem
                                               music={music}
                                               itemUniqueId={uniqueId}
                                               filterVisibility={playlistFilterVis}
                                               libraryYearDecade={libraryYearDecade}
                                               showMusicFileName={showNameMusicFiles}
+                                              showCommercialFileName={showNameCommercialFiles}
                                               showMediaFileName={showNameMediaFiles}
                                               activeFilterKey={playlistFilterFocus}
                                               onPlaylistFilterClick={applyPlaylistFilterClick}
@@ -1385,11 +1027,9 @@ function App() {
                                                   : undefined
                                               }
                                             />
-                                          </PlaylistDragDropItem>
                                         </div>
                                       );
                                     })}
-                                    <DroppableSlot id={`slot-end-${plKey}|${blockKey}`} />
                                   </>
                                 )}
                               </div>
@@ -1602,7 +1242,7 @@ function App() {
                           transform: `translateY(${virtualRow.start}px)`,
                         }}
                       >
-                        <DraggableMidiaItem
+                        <LibraryMediaListItem
                           file={file}
                           idx={virtualRow.index}
                           isSelected={isSelected}
@@ -1655,26 +1295,7 @@ function App() {
         </div>
       </div>
 
-      {/* Ghost do drag */}
-      <DragOverlay>
-        {activeFile && (
-          <div className={[
-            "flex items-center gap-2.5 px-3 h-12 max-w-[360px] backdrop-blur-md bg-[#262626] border rounded-lg shadow-[0_8px_32px_rgba(0,0,0,0.5)] cursor-grabbing opacity-95 pointer-events-none border-[#353535]",
-            isOverPlaylist ? "border-emerald-500/70 bg-[rgba(16,50,35,0.95)] shadow-[0_8px_32px_rgba(52,211,153,0.25)]" : "",
-          ].join(" ")}>
-            <span className="text-base shrink-0" aria-hidden>🎵</span>
-            <span className="flex-1 text-[0.82rem] text-white/90 whitespace-nowrap overflow-hidden text-ellipsis">{activeFile.name.replace(/\.[^/.]+$/, "")}</span>
-            <span className="text-[0.62rem] bg-white/10 text-slate-400 px-1.5 py-0.5 rounded font-semibold shrink-0">{activeFile.name.split(".").pop()?.toUpperCase()}</span>
-          </div>
-        )}
-        {!activeFile && activePlaylistMusic && (
-          <div className="max-w-[520px] rounded-md border border-emerald-500/60 bg-[#262626] px-3 py-2 text-[0.82rem] text-white/90 shadow-[0_8px_28px_rgba(0,0,0,0.45)] pointer-events-none">
-            {activePlaylistMusic.music.text || "Mídia da playlist"}
-          </div>
-        )}
-      </DragOverlay>
       <SettingsDock />
-    </DndContext>
     </SyncplayLibraryProvider>
   );
 }

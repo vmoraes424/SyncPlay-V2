@@ -7,11 +7,10 @@ import {
   findIdByLabel,
   findLibraryRow,
   getMusicLibraryCollectionLabels,
-  mergeExtraFromDroppedMusicFile,
   pickStringMap,
 } from '../library/syncplayLibrary';
 import { getAppSetting } from '../settings/settingsStorage';
-import type { DirFile, MediaCategory, Music } from '../types';
+import type { DirFile, MediaCategory } from '../types';
 
 async function fetchLibraryConfig<T>(filename: string): Promise<T | null> {
   try {
@@ -86,6 +85,7 @@ export interface UseSyncplayLibraryResult {
   playlistFilterVis: PlaylistFilterVisibility;
   libraryYearDecade: boolean;
   showNameMusicFiles: boolean;
+  showNameCommercialFiles: boolean;
   showNameMediaFiles: boolean;
   playlistFilterFocus: string | null;
   applyPlaylistFilterClick: (p: PlaylistFilterClickPayload) => void;
@@ -93,7 +93,6 @@ export interface UseSyncplayLibraryResult {
   musicStyleMap: Record<string, string>;
   musicRhythmMap: Record<string, string>;
   musicNationalityMap: Record<string, string>;
-  getDroppedMusicExtra: (fileName: string) => Music['extra'] | undefined;
 }
 
 export function useSyncplayLibrary({
@@ -117,6 +116,7 @@ export function useSyncplayLibrary({
     useState<PlaylistFilterVisibility>(defaultPlaylistFilterVis);
   const [libraryYearDecade, setLibraryYearDecade] = useState(false);
   const [showNameMusicFiles, setShowNameMusicFiles] = useState(false);
+  const [showNameCommercialFiles, setShowNameCommercialFiles] = useState(false);
   const [showNameMediaFiles, setShowNameMediaFiles] = useState(false);
   const [playlistFilterFocus, setPlaylistFilterFocus] = useState<string | null>(null);
 
@@ -236,6 +236,7 @@ export function useSyncplayLibrary({
         'playlistShowMediaFilterMediaType',
         'libraryConfigYearDecade',
         'showNameMusicFiles',
+        'showNameCommercialFiles',
         'showNameMediaFiles',
       ] as const;
       const vals = await Promise.all(keys.map((k) => getAppSetting(k)));
@@ -253,7 +254,8 @@ export function useSyncplayLibrary({
       });
       setLibraryYearDecade(cfgBool(vals[9]));
       setShowNameMusicFiles(cfgBool(vals[10]));
-      setShowNameMediaFiles(cfgBool(vals[11]));
+      setShowNameCommercialFiles(cfgBool(vals[11]));
+      setShowNameMediaFiles(cfgBool(vals[12]));
     })();
     return () => {
       cancelled = true;
@@ -351,11 +353,6 @@ export function useSyncplayLibrary({
     ]
   );
 
-  const getDroppedMusicExtra = useCallback(
-    (fileName: string) => mergeExtraFromDroppedMusicFile(fileName, libraryMaps.musicLibrary),
-    [libraryMaps.musicLibrary]
-  );
-
   return {
     libraryMaps,
     filteredFiles,
@@ -365,6 +362,7 @@ export function useSyncplayLibrary({
     playlistFilterVis,
     libraryYearDecade,
     showNameMusicFiles,
+    showNameCommercialFiles,
     showNameMediaFiles,
     playlistFilterFocus,
     applyPlaylistFilterClick,
@@ -372,6 +370,5 @@ export function useSyncplayLibrary({
     musicStyleMap,
     musicRhythmMap,
     musicNationalityMap,
-    getDroppedMusicExtra,
   };
 }

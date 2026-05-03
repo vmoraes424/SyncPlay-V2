@@ -47,13 +47,6 @@ export const SETTINGS_CONTENT: Record<SettingsMenuId, SettingsMenuContent> = {
         ],
       },
       {
-        id: 'drag-and-drop',
-        title: 'Drag and Drop',
-        items: [
-          cfg('enableDragAndDrop', 'Desabilitar Drag and Drop externo', 'toggle', 'enableDragAndDrop'),
-        ],
-      },
-      {
         id: 'search',
         title: 'Busca',
         items: [

@@ -128,6 +128,7 @@ interface PlaylistMusicItemProps {
   filterVisibility: PlaylistFilterVisibility;
   libraryYearDecade: boolean;
   showMusicFileName: boolean;
+  showCommercialFileName: boolean;
   showMediaFileName: boolean;
   activeFilterKey: string | null;
   onPlaylistFilterClick?: (payload: PlaylistFilterClickPayload) => void;
@@ -153,6 +154,7 @@ export function PlaylistMusicItem({
   filterVisibility,
   libraryYearDecade,
   showMusicFileName,
+  showCommercialFileName,
   showMediaFileName,
   activeFilterKey,
   onPlaylistFilterClick,
@@ -272,8 +274,12 @@ export function PlaylistMusicItem({
       active ? 'filter-active' : 'text-white',
     ].join(' ');
 
-  const showFn =
-    isMusicKind ? showMusicFileName : showMediaFileName;
+  const itemType = music.type ?? '';
+  const showFn = isMusicKind
+    ? showMusicFileName
+    : itemType === 'commercial'
+      ? showCommercialFileName
+      : showMediaFileName;
 
   const hasMusicChips =
     isMusicKind &&

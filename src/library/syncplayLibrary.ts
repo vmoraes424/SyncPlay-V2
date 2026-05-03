@@ -108,15 +108,6 @@ export function buildMusicExtraFromLibraryRow(
   return extra;
 }
 
-export function mergeExtraFromDroppedMusicFile(
-  fileName: string,
-  musicLibrary: Record<string, unknown> | null | undefined
-): ExtraData | undefined {
-  const row = findLibraryRow(musicLibrary ?? null, fileName);
-  if (!row) return undefined;
-  return buildMusicExtraFromLibraryRow(row, null);
-}
-
 export interface MediaAcervoLabels {
   mediaType?: string;
   tagBumper?: string;

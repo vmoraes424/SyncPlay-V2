@@ -27,6 +27,13 @@ export function formatTimeRemaining(seconds: number) {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
+export function formatTime(seconds: number) {
+  if (isNaN(seconds) || seconds < 0) return "0:00";
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${s < 10 ? "0" : ""}${s}`;
+}
+
 export function parseTimeToSeconds(input: string) {
   const parts = input.trim().split(':');
   const parse = (value: string) => {
