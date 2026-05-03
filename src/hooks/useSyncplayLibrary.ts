@@ -4,13 +4,14 @@ import { invoke } from '@tauri-apps/api/core';
 import type { PlaylistFilterClickPayload, PlaylistFilterVisibility } from '../components/PlaylistMusicItem';
 import type { SyncplayLibraryMaps } from '../library/SyncplayLibraryContext';
 import {
-  findIdByLabel,
-  findLibraryRow,
+  fileBelongsToLibraryCollection,
+  findLibraryRowForFile,
   getMusicLibraryCollectionLabels,
   pickStringMap,
+  resolveMusicFilterId,
 } from '../library/syncplayLibrary';
 import { getAppSetting } from '../settings/settingsStorage';
-import type { DirFile, MediaCategory } from '../types';
+import type { DirFile, DirectoryOptionKind, MediaCategory } from '../types';
 
 async function fetchLibraryConfig<T>(filename: string): Promise<T | null> {
   try {
@@ -55,6 +56,30 @@ export function emptyLibMusicFilters(): LibMusicFiltersState {
   };
 }
 
+function hasAnyLibMusicFacet(f: LibMusicFiltersState): boolean {
+  return !!(
+    f.categoryId ||
+    f.styleId ||
+    f.rhythmId ||
+    f.nationalityId ||
+    f.yearMin ||
+    f.yearMax ||
+    f.collectionLabel
+  );
+}
+
+function yearFacetMatchesSelection(year: number, f: LibMusicFiltersState, libraryYearDecade: boolean): boolean {
+  if (!f.yearMin.trim() || !f.yearMax.trim()) return false;
+  const yMin = parseInt(f.yearMin, 10);
+  const yMax = parseInt(f.yearMax, 10);
+  if (!Number.isFinite(yMin) || !Number.isFinite(yMax)) return false;
+  if (libraryYearDecade) {
+    const d = Math.floor(year / 10) * 10;
+    return yMin === d && yMax === d + 9;
+  }
+  return yMin === yMax && yMin === year;
+}
+
 const defaultPlaylistFilterVis: PlaylistFilterVisibility = {
   playlistShowMusicFilterYear: false,
   playlistShowMusicFilterCategory: false,
@@ -71,6 +96,8 @@ export interface UseSyncplayLibraryArgs {
   dirFiles: DirFile[];
   searchQuery: string;
   mediaCategory: MediaCategory;
+  directoryValue: string;
+  directoryKind: DirectoryOptionKind;
   setMediaCategory: React.Dispatch<React.SetStateAction<MediaCategory>>;
   setDirectoryValue: React.Dispatch<React.SetStateAction<string>>;
   setSearchQuery: React.Dispatch<React.SetStateAction<string>>;
@@ -87,7 +114,6 @@ export interface UseSyncplayLibraryResult {
   showNameMusicFiles: boolean;
   showNameCommercialFiles: boolean;
   showNameMediaFiles: boolean;
-  playlistFilterFocus: string | null;
   applyPlaylistFilterClick: (p: PlaylistFilterClickPayload) => void;
   musicCategoryMap: Record<string, string>;
   musicStyleMap: Record<string, string>;
@@ -99,6 +125,8 @@ export function useSyncplayLibrary({
   dirFiles,
   searchQuery,
   mediaCategory,
+  directoryValue,
+  directoryKind,
   setMediaCategory,
   setDirectoryValue,
   setSearchQuery,
@@ -118,8 +146,6 @@ export function useSyncplayLibrary({
   const [showNameMusicFiles, setShowNameMusicFiles] = useState(false);
   const [showNameCommercialFiles, setShowNameCommercialFiles] = useState(false);
   const [showNameMediaFiles, setShowNameMediaFiles] = useState(false);
-  const [playlistFilterFocus, setPlaylistFilterFocus] = useState<string | null>(null);
-
   const musicCategoryMap = useMemo(
     () => pickStringMap(libraryMaps.musicFilters, 'categories', 'category'),
     [libraryMaps.musicFilters]
@@ -141,6 +167,18 @@ export function useSyncplayLibrary({
     let files = dirFiles.filter((f) =>
       f.name.toLowerCase().includes(searchQuery.toLowerCase())
     );
+
+    const collectionIdFromSelect =
+      directoryKind === 'collection' && directoryValue && directoryValue !== '0' ? directoryValue : '';
+
+    if (mediaCategory === 'musics' && collectionIdFromSelect && libraryMaps.musicLibrary) {
+      const mlib = libraryMaps.musicLibrary;
+      files = files.filter((file) => fileBelongsToLibraryCollection(mlib, file, collectionIdFromSelect));
+    } else if (mediaCategory === 'medias' && collectionIdFromSelect && libraryMaps.mediaLibrary) {
+      const mdlib = libraryMaps.mediaLibrary;
+      files = files.filter((file) => fileBelongsToLibraryCollection(mdlib, file, collectionIdFromSelect));
+    }
+
     if (mediaCategory !== 'musics') return files;
 
     const f = libMusicFilterIds;
@@ -158,19 +196,31 @@ export function useSyncplayLibrary({
     const yMin = f.yearMin ? parseInt(f.yearMin, 10) : NaN;
     const yMax = f.yearMax ? parseInt(f.yearMax, 10) : NaN;
 
+    const mf = libraryMaps.musicFilters;
+    const catMapEq = pickStringMap(mf, 'categories', 'category');
+    const styleMapEq = pickStringMap(mf, 'styles', 'style', 'estilos');
+    const rhythmMapEq = pickStringMap(mf, 'rhythms', 'rhythm', 'ritmos');
+    const nationalityMapEq = pickStringMap(mf, 'nationalities', 'nationality', 'paises');
+
+    const rowMetaId = (rowVal: unknown, map: Record<string, string>) =>
+      resolveMusicFilterId(map, rowVal, null);
+
     return files.filter((file) => {
-      const row = findLibraryRow(libraryMaps.musicLibrary, file.name);
+      const row = findLibraryRowForFile(libraryMaps.musicLibrary, file);
       if (!row) return false;
-      if (f.categoryId && String(row.category ?? row.categoria ?? row.id_category ?? '') !== f.categoryId)
+
+      const wantCat = String(f.categoryId).trim();
+      const wantStyle = String(f.styleId).trim();
+      const wantRhy = String(f.rhythmId).trim();
+      const wantNat = String(f.nationalityId).trim();
+
+      if (wantCat && rowMetaId(row.category ?? row.categoria ?? row.id_category, catMapEq) !== wantCat)
         return false;
-      if (f.styleId && String(row.style ?? row.estilo ?? row.id_style ?? '') !== f.styleId)
+      if (wantStyle && rowMetaId(row.style ?? row.estilo ?? row.id_style, styleMapEq) !== wantStyle)
         return false;
-      if (f.rhythmId && String(row.rhythm ?? row.ritmo ?? row.id_rhythm ?? '') !== f.rhythmId)
+      if (wantRhy && rowMetaId(row.rhythm ?? row.ritmo ?? row.id_rhythm, rhythmMapEq) !== wantRhy)
         return false;
-      if (
-        f.nationalityId &&
-        String(row.nationality ?? row.nacionalidade ?? row.id_nationality ?? '') !== f.nationalityId
-      )
+      if (wantNat && rowMetaId(row.nationality ?? row.nacionalidade ?? row.id_nationality, nationalityMapEq) !== wantNat)
         return false;
 
       const yearRaw = row.released ?? row.year ?? row.ano ?? row.release_year;
@@ -183,7 +233,7 @@ export function useSyncplayLibrary({
         const labs = getMusicLibraryCollectionLabels(
           libraryMaps.musicLibrary,
           libraryMaps.musicFilters,
-          file.name
+          file
         );
         const want = f.collectionLabel.trim().toLowerCase();
         if (!labs.some((l) => l.trim().toLowerCase() === want)) return false;
@@ -194,8 +244,11 @@ export function useSyncplayLibrary({
     dirFiles,
     searchQuery,
     mediaCategory,
+    directoryValue,
+    directoryKind,
     libMusicFilterIds,
     libraryMaps.musicLibrary,
+    libraryMaps.mediaLibrary,
     libraryMaps.musicFilters,
   ]);
 
@@ -269,49 +322,59 @@ export function useSyncplayLibrary({
   const applyPlaylistFilterClick = useCallback(
     (p: PlaylistFilterClickPayload) => {
       if (p.kind === 'artist') {
-        setPlaylistFilterFocus(`${p.itemUniqueId}:artist`);
         setMediaCategory('musics');
         setDirectoryValue('0');
-        setSearchQuery(p.artist);
-        setLibMusicFilterIds(emptyLibMusicFilters());
+        const artistNorm = p.artist.trim().toLowerCase();
+        const searchNorm = searchQuery.trim().toLowerCase();
+        if (searchNorm === artistNorm && !hasAnyLibMusicFacet(libMusicFilterIds)) {
+          setSearchQuery('');
+        } else {
+          setSearchQuery(p.artist);
+          setLibMusicFilterIds(emptyLibMusicFilters());
+        }
         return;
       }
       if (p.kind === 'year') {
-        setPlaylistFilterFocus(`${p.itemUniqueId}:year`);
         setMediaCategory('musics');
         setDirectoryValue('0');
-        const y = p.year;
-        if (libraryYearDecade) {
-          const d = Math.floor(y / 10) * 10;
-          setLibMusicFilterIds({
-            ...emptyLibMusicFilters(),
-            yearMin: String(d),
-            yearMax: String(d + 9),
-          });
-        } else {
-          setLibMusicFilterIds({
-            ...emptyLibMusicFilters(),
-            yearMin: String(y),
-            yearMax: String(y),
-          });
-        }
         setSearchQuery('');
+        const y = p.year;
+        setLibMusicFilterIds((prev) => {
+          if (yearFacetMatchesSelection(y, prev, libraryYearDecade)) {
+            return { ...prev, yearMin: '', yearMax: '' };
+          }
+          if (libraryYearDecade) {
+            const d = Math.floor(y / 10) * 10;
+            return { ...prev, yearMin: String(d), yearMax: String(d + 9) };
+          }
+          return { ...prev, yearMin: String(y), yearMax: String(y) };
+        });
         return;
       }
       if (p.kind === 'collection') {
-        setPlaylistFilterFocus(`${p.itemUniqueId}:coll:${p.label}`);
         setMediaCategory('musics');
         setDirectoryValue('0');
-        setLibMusicFilterIds({ ...emptyLibMusicFilters(), collectionLabel: p.label });
         setSearchQuery('');
+        const want = p.label.trim().toLowerCase();
+        setLibMusicFilterIds((prev) => {
+          if (prev.collectionLabel.trim().toLowerCase() === want) {
+            return { ...prev, collectionLabel: '' };
+          }
+          return { ...prev, collectionLabel: p.label };
+        });
         return;
       }
       if (p.kind === 'mediaBrowse') {
-        setPlaylistFilterFocus(`${p.itemUniqueId}:mediaBrowse`);
-        setMediaCategory('medias');
-        setDirectoryValue('0');
-        setSearchQuery(p.label);
-        setLibMusicFilterIds(emptyLibMusicFilters());
+        const labelNorm = p.label.trim().toLowerCase();
+        const searchNorm = searchQuery.trim().toLowerCase();
+        if (mediaCategory === 'medias' && directoryValue === '0' && searchNorm === labelNorm) {
+          setSearchQuery('');
+        } else {
+          setMediaCategory('medias');
+          setDirectoryValue('0');
+          setSearchQuery(p.label);
+          setLibMusicFilterIds(emptyLibMusicFilters());
+        }
         return;
       }
 
@@ -323,30 +386,38 @@ export function useSyncplayLibrary({
             : p.field === 'rhythm'
               ? musicRhythmMap
               : musicNationalityMap;
-      const id =
-        p.raw != null && String(p.raw).trim() !== ''
-          ? String(p.raw)
-          : findIdByLabel(map, p.displayText) ?? '';
+      const id = resolveMusicFilterId(map, p.raw, p.displayText);
 
-      setPlaylistFilterFocus(`${p.itemUniqueId}:${p.field}`);
       setMediaCategory('musics');
       setDirectoryValue('0');
       setSearchQuery('');
-      setLibMusicFilterIds(() => {
-        const base = emptyLibMusicFilters();
-        if (p.field === 'category') base.categoryId = id;
-        else if (p.field === 'style') base.styleId = id;
-        else if (p.field === 'rhythm') base.rhythmId = id;
-        else base.nationalityId = id;
-        return base;
+      setLibMusicFilterIds((prev) => {
+        const key =
+          p.field === 'category'
+            ? 'categoryId'
+            : p.field === 'style'
+              ? 'styleId'
+              : p.field === 'rhythm'
+                ? 'rhythmId'
+                : 'nationalityId';
+        const cur = String(prev[key] ?? '').trim();
+        const next = String(id).trim();
+        if (cur !== '' && cur === next) {
+          return { ...prev, [key]: '' };
+        }
+        return { ...prev, [key]: id };
       });
     },
     [
+      directoryValue,
+      libMusicFilterIds,
       libraryYearDecade,
+      mediaCategory,
       musicCategoryMap,
       musicNationalityMap,
       musicRhythmMap,
       musicStyleMap,
+      searchQuery,
       setDirectoryValue,
       setMediaCategory,
       setSearchQuery,
@@ -364,7 +435,6 @@ export function useSyncplayLibrary({
     showNameMusicFiles,
     showNameCommercialFiles,
     showNameMediaFiles,
-    playlistFilterFocus,
     applyPlaylistFilterClick,
     musicCategoryMap,
     musicStyleMap,

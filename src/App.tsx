@@ -486,7 +486,6 @@ function App() {
     showNameMusicFiles,
     showNameCommercialFiles,
     showNameMediaFiles,
-    playlistFilterFocus,
     applyPlaylistFilterClick,
     musicCategoryMap,
     musicStyleMap,
@@ -496,6 +495,8 @@ function App() {
     dirFiles,
     searchQuery,
     mediaCategory,
+    directoryValue,
+    directoryKind,
     setMediaCategory,
     setDirectoryValue,
     setSearchQuery,
@@ -999,7 +1000,6 @@ function App() {
                   <div className="w-full">
                     {visiblePlaylistGroups.map(({ plKey, pl, blocks }) => (
                       <div key={plKey}>
-                        <h2 className="playlist-title">{pl.program}</h2>
                         {blocks.map(([blockKey, block]) => {
                           const musicEntries = Object.entries(blockMediaRecord(block));
                           const blockDisplayStart = getBlockDisplayStart(block.start, musicEntries);
@@ -1115,7 +1115,12 @@ function App() {
                                               showMusicFileName={showNameMusicFiles}
                                               showCommercialFileName={showNameCommercialFiles}
                                               showMediaFileName={showNameMediaFiles}
-                                              activeFilterKey={playlistFilterFocus}
+                                              libMusicFilterIds={libMusicFilterIds}
+                                              playlistSidebarFilterHighlight={{
+                                                searchQuery,
+                                                mediaCategory,
+                                                directoryValue,
+                                              }}
                                               onPlaylistFilterClick={applyPlaylistFilterClick}
                                               startLabel={scheduleStart?.startLabel}
                                               isCurrentlyPlaying={isCurrentlyPlaying}

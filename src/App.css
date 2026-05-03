@@ -271,6 +271,7 @@ select,
 
 .filter-active {
   transform: scale(0.9);
+  color: #019a00;
 }
 
 .filter-container {

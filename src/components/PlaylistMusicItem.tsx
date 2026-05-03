@@ -1,4 +1,5 @@
-import type { Music } from '../types';
+import type { Music, MediaCategory } from '../types';
+import type { LibMusicFiltersState } from '../hooks/useSyncplayLibrary';
 
 import { formatTimeRemaining } from '../time';
 import proximaBcoImg from '../assets/proxima_bco.png';
@@ -9,7 +10,9 @@ import {
   fileBaseKey,
   getMediaAcervoLabels,
   getMusicLibraryCollectionLabels,
+  pickStringMap,
   resolveFilterLabel,
+  resolveMusicFilterId,
   stripHtmlToText,
 } from '../library/syncplayLibrary';
 import { CollectionIcon } from '../assets/CollectionIcon';
@@ -102,8 +105,57 @@ function parseYear(raw: string | number | undefined): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-function chipActive(activeFilterKey: string | null, itemUniqueId: string, suffix: string) {
-  return activeFilterKey === `${itemUniqueId}:${suffix}`;
+/** Estado da barra lateral usado para refletir chips ativos (busca + mídias + diretório). */
+export interface PlaylistSidebarFilterHighlight {
+  searchQuery: string;
+  mediaCategory: MediaCategory;
+  directoryValue: string;
+}
+
+function hasAnyPlaylistLibFacet(f: LibMusicFiltersState): boolean {
+  return !!(
+    f.categoryId ||
+    f.styleId ||
+    f.rhythmId ||
+    f.nationalityId ||
+    f.yearMin ||
+    f.yearMax ||
+    f.collectionLabel
+  );
+}
+
+function resolveMusicMetaId(
+  musicFilters: Record<string, unknown> | null,
+  field: 'category' | 'style' | 'rhythm' | 'nationality',
+  raw: unknown,
+  displayLabel: string | null
+): string {
+  const map =
+    field === 'category'
+      ? pickStringMap(musicFilters, 'categories', 'category')
+      : field === 'style'
+        ? pickStringMap(musicFilters, 'styles', 'style', 'estilos')
+        : field === 'rhythm'
+          ? pickStringMap(musicFilters, 'rhythms', 'rhythm', 'ritmos')
+          : pickStringMap(musicFilters, 'nationalities', 'nationality', 'paises');
+  return resolveMusicFilterId(map, raw, displayLabel);
+}
+
+function yearFacetMatchesTrack(
+  year: number | null,
+  f: LibMusicFiltersState,
+  libraryYearDecade: boolean
+): boolean {
+  if (year == null) return false;
+  if (!f.yearMin.trim() || !f.yearMax.trim()) return false;
+  const yMin = parseInt(f.yearMin, 10);
+  const yMax = parseInt(f.yearMax, 10);
+  if (!Number.isFinite(yMin) || !Number.isFinite(yMax)) return false;
+  if (libraryYearDecade) {
+    const d = Math.floor(year / 10) * 10;
+    return yMin === d && yMax === d + 9;
+  }
+  return yMin === yMax && yMin === year;
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -130,7 +182,8 @@ interface PlaylistMusicItemProps {
   showMusicFileName: boolean;
   showCommercialFileName: boolean;
   showMediaFileName: boolean;
-  activeFilterKey: string | null;
+  libMusicFilterIds: LibMusicFiltersState;
+  playlistSidebarFilterHighlight: PlaylistSidebarFilterHighlight;
   onPlaylistFilterClick?: (payload: PlaylistFilterClickPayload) => void;
 }
 
@@ -156,7 +209,8 @@ export function PlaylistMusicItem({
   showMusicFileName,
   showCommercialFileName,
   showMediaFileName,
-  activeFilterKey,
+  libMusicFilterIds,
+  playlistSidebarFilterHighlight,
   onPlaylistFilterClick,
 }: PlaylistMusicItemProps) {
   const { musicLibrary, musicFilters, mediaLibrary, mediaFilters } = useSyncplayLibraryMaps();
@@ -248,6 +302,41 @@ export function PlaylistMusicItem({
   const yearRaw = music.extra?.released;
   const yearNum = parseYear(yearRaw);
   const yearLabel = yearRaw != null && String(yearRaw).trim() !== '' ? String(yearRaw) : null;
+
+  const sb = playlistSidebarFilterHighlight;
+  const catMetaId = resolveMusicMetaId(musicFilters, 'category', music.extra?.category, catLabel);
+  const styleMetaId = resolveMusicMetaId(musicFilters, 'style', music.extra?.style, styleLabel);
+  const rhythmMetaId = resolveMusicMetaId(musicFilters, 'rhythm', music.extra?.rhythm, rhythmLabel);
+  const natMetaId = resolveMusicMetaId(musicFilters, 'nationality', music.extra?.nationality, natLabel);
+
+  const categoryChipActive =
+    catMetaId !== '' && String(libMusicFilterIds.categoryId).trim() === String(catMetaId).trim();
+  const styleChipActive =
+    styleMetaId !== '' && String(libMusicFilterIds.styleId).trim() === String(styleMetaId).trim();
+  const rhythmChipActive =
+    rhythmMetaId !== '' && String(libMusicFilterIds.rhythmId).trim() === String(rhythmMetaId).trim();
+  const natChipActive =
+    natMetaId !== '' && String(libMusicFilterIds.nationalityId).trim() === String(natMetaId).trim();
+  const yearChipActive = yearFacetMatchesTrack(yearNum, libMusicFilterIds, libraryYearDecade);
+
+  const artistChipActive =
+    artist != null &&
+    sb.mediaCategory === 'musics' &&
+    sb.directoryValue === '0' &&
+    !hasAnyPlaylistLibFacet(libMusicFilterIds) &&
+    sb.searchQuery.trim().toLowerCase() === artist.trim().toLowerCase();
+
+  function mediaBrowseChipActive(label: string) {
+    return (
+      sb.mediaCategory === 'medias' &&
+      sb.directoryValue === '0' &&
+      sb.searchQuery.trim().toLowerCase() === label.trim().toLowerCase()
+    );
+  }
+
+  function collectionChipActive(label: string) {
+    return libMusicFilterIds.collectionLabel.trim().toLowerCase() === label.trim().toLowerCase();
+  }
 
   const extraPlain =
     music.extraInfoHTML != null && String(music.extraInfoHTML).trim() !== ''
@@ -360,7 +449,7 @@ export function PlaylistMusicItem({
                   <ArtistIcon />
                   <span
                     data-filter-chip
-                    className={`filterArtist text-xs font-bold text-white leading-snug truncate underline cursor-pointer hover:text-sky-200 ${chipActive(activeFilterKey, itemUniqueId, 'artist') ? 'filter-active rounded px-1' : ''}`}
+                    className={`filterArtist text-xs font-bold text-white leading-snug truncate underline cursor-pointer hover:text-sky-200 ${artistChipActive ? 'filter-active rounded px-1' : ''}`}
                     title={artist}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -392,7 +481,6 @@ export function PlaylistMusicItem({
               )}
             </div>
 
-            {/* Legado: #extraInformationContainer — id único por item (HTML válido) */}
             {showExtraBlock ? (
               <div
                 id={`extra-information-${itemUniqueId}`}
@@ -423,7 +511,7 @@ export function PlaylistMusicItem({
                       {filterVisibility.playlistShowMusicFilterCategory && catLabel ? (
                         <span
                           data-filter-chip
-                          className={`filterCategory ${chipClass(chipActive(activeFilterKey, itemUniqueId, 'category'))}`}
+                          className={`filterCategory ${chipClass(categoryChipActive)}`}
                           title={libraryYearDecade ? 'Filtrar por categoria (acervo)' : 'Filtrar por categoria'}
                           onClick={(e) => {
                             e.stopPropagation();
@@ -442,7 +530,7 @@ export function PlaylistMusicItem({
                       {filterVisibility.playlistShowMusicFilterStyle && styleLabel ? (
                         <span
                           data-filter-chip
-                          className={`filterStyle ${chipClass(chipActive(activeFilterKey, itemUniqueId, 'style'))}`}
+                          className={`filterStyle ${chipClass(styleChipActive)}`}
                           onClick={(e) => {
                             e.stopPropagation();
                             emitFilter({
@@ -460,7 +548,7 @@ export function PlaylistMusicItem({
                       {filterVisibility.playlistShowMusicFilterRhythm && rhythmLabel ? (
                         <span
                           data-filter-chip
-                          className={`filterRhythm ${chipClass(chipActive(activeFilterKey, itemUniqueId, 'rhythm'))}`}
+                          className={`filterRhythm ${chipClass(rhythmChipActive)}`}
                           onClick={(e) => {
                             e.stopPropagation();
                             emitFilter({
@@ -478,7 +566,7 @@ export function PlaylistMusicItem({
                       {filterVisibility.playlistShowMusicFilterNationality && natLabel ? (
                         <span
                           data-filter-chip
-                          className={`filterNationality ${chipClass(chipActive(activeFilterKey, itemUniqueId, 'nationality'))}`}
+                          className={`filterNationality ${chipClass(natChipActive)}`}
                           onClick={(e) => {
                             e.stopPropagation();
                             emitFilter({
@@ -496,7 +584,7 @@ export function PlaylistMusicItem({
                       {filterVisibility.playlistShowMusicFilterYear && yearLabel ? (
                         <span
                           data-filter-chip
-                          className={`filterYear ${chipClass(chipActive(activeFilterKey, itemUniqueId, 'year'))}`}
+                          className={`filterYear ${chipClass(yearChipActive)}`}
                           title={libraryYearDecade ? 'Filtrar por década' : 'Filtrar por ano'}
                           onClick={(e) => {
                             e.stopPropagation();
@@ -522,7 +610,7 @@ export function PlaylistMusicItem({
                         <span
                           key={label}
                           data-filter-chip
-                          className={`filterCollection ${chipClass(chipActive(activeFilterKey, itemUniqueId, `coll:${label}`))}`}
+                          className={`filterCollection ${chipClass(collectionChipActive(label))}`}
                           onClick={(e) => {
                             e.stopPropagation();
                             emitFilter({ kind: 'collection', label, itemUniqueId });
@@ -544,7 +632,7 @@ export function PlaylistMusicItem({
                       {filterVisibility.playlistShowMediaFilterMediaType && mediaAcervo?.mediaType ? (
                         <span
                           data-filter-chip
-                          className={`filterDirectory ${chipClass(chipActive(activeFilterKey, itemUniqueId, 'mediaBrowse'))}`}
+                          className={`filterDirectory ${chipClass(mediaBrowseChipActive(mediaAcervo.mediaType!))}`}
                           data-type={mediaAcervo.mediaType}
                           onClick={(e) => {
                             e.stopPropagation();
@@ -557,7 +645,7 @@ export function PlaylistMusicItem({
                       {filterVisibility.playlistShowMediaFilterTag && mediaAcervo?.tagBumper ? (
                         <span
                           data-filter-chip
-                          className={`filterTagBumper ${chipClass(chipActive(activeFilterKey, itemUniqueId, 'mediaBrowse'))}`}
+                          className={`filterTagBumper ${chipClass(mediaBrowseChipActive(mediaAcervo.tagBumper!))}`}
                           onClick={(e) => {
                             e.stopPropagation();
                             emitFilter({ kind: 'mediaBrowse', label: mediaAcervo.tagBumper!, itemUniqueId });
@@ -571,7 +659,7 @@ export function PlaylistMusicItem({
                           <span
                             key={c}
                             data-filter-chip
-                            className={`filterCollection ${chipClass(chipActive(activeFilterKey, itemUniqueId, 'mediaBrowse'))}`}
+                            className={`filterCollection ${chipClass(mediaBrowseChipActive(c))}`}
                             onClick={(e) => {
                               e.stopPropagation();
                               emitFilter({ kind: 'mediaBrowse', label: c, itemUniqueId });

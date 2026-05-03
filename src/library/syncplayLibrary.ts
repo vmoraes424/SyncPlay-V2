@@ -17,11 +17,14 @@ export function findLibraryRow(
   if (!lib) return null;
   const base = fileBaseKey(fileName);
   const stem = base.replace(/\.[^/.]+$/, '');
+  const slashNorm = fileName.replace(/\\/g, '/');
   const candidates = [
     fileName,
+    slashNorm,
     base,
     stem,
     fileName.toLowerCase(),
+    slashNorm.toLowerCase(),
     base.toLowerCase(),
     stem.toLowerCase(),
   ];
@@ -73,13 +76,40 @@ function normalizeCollectionIds(raw: unknown): string[] {
   return [String(raw)];
 }
 
+/** Linha no JSON do acervo: índice pode ser path completo ou só o nome do arquivo (legado SyncPlay). */
+export function findLibraryRowForFile(
+  lib: Record<string, unknown> | null | undefined,
+  file: { path: string; name: string }
+): Record<string, unknown> | null {
+  return findLibraryRow(lib, file.path) ?? findLibraryRow(lib, file.name);
+}
+
+export function rowBelongsToCollectionId(row: Record<string, unknown>, collectionId: string): boolean {
+  if (!collectionId) return false;
+  const want = String(collectionId).trim();
+  const ids = normalizeCollectionIds(row.collections ?? row.collection ?? row.collection_ids ?? row.colecoes);
+  return ids.some((id) => String(id).trim() === want);
+}
+
+/** Filtro do select «Coleção - …» (value = id em music_filters / media_filters). */
+export function fileBelongsToLibraryCollection(
+  lib: Record<string, unknown> | null | undefined,
+  file: { path: string; name: string },
+  collectionId: string
+): boolean {
+  const row = findLibraryRowForFile(lib, file);
+  if (!row) return false;
+  return rowBelongsToCollectionId(row, collectionId);
+}
+
 /** Nomes de coleções (music_library + music_filters.collections) */
 export function getMusicLibraryCollectionLabels(
   lib: Record<string, unknown> | null | undefined,
   filters: Record<string, unknown> | null | undefined,
-  fileName: string
+  file: { path: string; name: string } | string
 ): string[] {
-  const row = findLibraryRow(lib, fileName);
+  const row =
+    typeof file === 'string' ? findLibraryRow(lib, file) : findLibraryRowForFile(lib, file);
   if (!row) return [];
   const collMap = pickStringMap(filters, 'collections', 'collection');
   const ids = normalizeCollectionIds(row.collections ?? row.collection ?? row.collection_ids ?? row.colecoes);
@@ -148,10 +178,33 @@ export function getMediaAcervoLabels(
 
 export function findIdByLabel(map: Record<string, string>, label: string): string | null {
   const t = label.trim().toLowerCase();
+  if (!t) return null;
   for (const [id, name] of Object.entries(map)) {
     if (name.trim().toLowerCase() === t) return id;
   }
   return null;
+}
+
+/**
+ * Converte valor vindos do playlist/extra ou da linha do acervo (ID ou texto já resolvido)
+ * para o mesmo ID usado nos selects (`music_filters`).
+ */
+export function resolveMusicFilterId(
+  map: Record<string, string>,
+  raw: unknown,
+  displayLabel?: string | null
+): string {
+  if (raw != null && raw !== '') {
+    const s = String(raw).trim();
+    if (s !== '') {
+      if (Object.prototype.hasOwnProperty.call(map, s)) return s;
+      const idFromText = findIdByLabel(map, s);
+      if (idFromText) return idFromText;
+      return s;
+    }
+  }
+  const lbl = displayLabel?.trim();
+  return lbl ? findIdByLabel(map, lbl) ?? '' : '';
 }
 
 /** Remove tags HTML do legado para exibição segura */
