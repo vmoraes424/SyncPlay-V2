@@ -3,7 +3,7 @@ interface BlockHeaderProps {
   startLabel?: string;
 }
 
-const BLOCK_TYPE_LABEL: Record<string, string> = {
+export const BLOCK_TYPE_LABEL: Record<string, string> = {
   musical: 'MUSICAL',
   commercial: 'COMERCIAL',
 };

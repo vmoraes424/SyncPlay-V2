@@ -24,6 +24,7 @@ import type {
 import { BlockHeader } from './components/BlockHeader';
 import { PlaylistMusicItem } from './components/PlaylistMusicItem';
 import { MusicInfo } from './components/playlist/MusicInfo';
+import { PlaylistCurrentBlock } from './components/playlist/PlaylistCurrentBlock';
 import { PlaylistPlaybackBar } from './components/playlist/PlaylistPlaybackBar';
 import { SettingsDock } from './components/settings/SettingsDock';
 import { getAppSetting } from './settings/settingsStorage';
@@ -174,6 +175,28 @@ function musicForPlaylistItemId(data: SyncPlayData | null, uniqueId: string | nu
       const mediaMap = blockMediaRecord(block);
       for (const [musicKey, music] of Object.entries(mediaMap)) {
         if (`${plKey}-${blockKey}-${musicKey}` === uniqueId) return music;
+      }
+    }
+  }
+  return null;
+}
+
+function blockAndProgramForPlaylistItemId(
+  data: SyncPlayData | null,
+  uniqueId: string | null
+): {
+  block: SyncPlayData['playlists'][string]['blocks'][string];
+  programName: string;
+} | null {
+  if (!data || !uniqueId) return null;
+  for (const [plKey, pl] of orderedPlaylistEntries(data)) {
+    for (const [blockKey, block] of orderedBlockEntries(pl.blocks)) {
+      const mediaMap = blockMediaRecord(block);
+      for (const [musicKey] of Object.entries(mediaMap)) {
+        if (`${plKey}-${blockKey}-${musicKey}` === uniqueId) {
+          const programName = (pl.program ?? '').trim() || plKey;
+          return { block, programName };
+        }
       }
     }
   }
@@ -538,6 +561,25 @@ function App() {
         : { groups: [] as VisiblePlaylistGroup[], hasMoreTail: false },
     [data, playingId, scheduledMusicId, playlistBlockWindow, playlistTailExpansion]
   );
+
+  const playlistCurrentBlockLine = useMemo(() => {
+    const anchor = playingId ?? scheduledMusicId;
+    const resolved = blockAndProgramForPlaylistItemId(data, anchor);
+    if (!resolved)
+      return {
+        predictedTimeLabel: null as string | null,
+        programName: null as string | null,
+        blockType: null as string | null,
+      };
+    const { block, programName } = resolved;
+    const musicEntries = Object.entries(blockMediaRecord(block));
+    const displayStart = getBlockDisplayStart(block.start, musicEntries);
+    const predictedTimeLabel =
+      typeof displayStart === 'number' && Number.isFinite(displayStart)
+        ? formatSecondsOfDay(displayStart, true)
+        : null;
+    return { predictedTimeLabel, programName, blockType: block.type ?? null };
+  }, [data, playingId, scheduledMusicId]);
 
   const nowPlayingMusic = useMemo(
     () => musicForPlaylistItemId(data, playingId),
@@ -993,128 +1035,135 @@ function App() {
             <div className="w-12 h-full ">
 
             </div>
-            <div className="scrollable-y relative flex min-h-0 flex-1 flex-col overflow-y-auto">
-              {loading && <p className="text-center p-8 text-slate-400">Carregando lista...</p>}
-              {error && <div className="text-center p-8 text-red-300">{error}</div>}
+            <div className="w-full h-full min-h-0 relative flex flex-col">
+              <PlaylistCurrentBlock
+                predictedTimeLabel={playlistCurrentBlockLine.predictedTimeLabel}
+                programName={playlistCurrentBlockLine.programName}
+                blockType={playlistCurrentBlockLine.blockType}
+              />
+              <div className="scrollable-y relative flex min-h-0 flex-1 flex-col overflow-y-auto">
+                {loading && <p className="text-center p-8 text-slate-400">Carregando lista...</p>}
+                {error && <div className="text-center p-8 text-red-300">{error}</div>}
 
-              {!loading && !error && data && (
-                <div className="w-full">
-                  {visiblePlaylistGroups.map(({ plKey, pl, blocks }) => (
-                    <div key={plKey}>
-                      <h2 className="playlist-title">{pl.program}</h2>
-                      {blocks.map(([blockKey, block]) => {
-                        const musicEntries = Object.entries(blockMediaRecord(block));
-                        const blockDisplayStart = getBlockDisplayStart(block.start, musicEntries);
-                        return (
-                          <section
-                            key={`${plKey}-${blockKey}`}
-                            className={[
-                              "playlist-block",
-                              block.type === "musical" ? "playlist-block--musical" : "playlist-block--commercial",
-                            ].join(" ")}
-                          >
-                            <BlockHeader
-                              blockType={block.type}
-                              startLabel={typeof blockDisplayStart === 'number' ? formatSecondsOfDay(blockDisplayStart, true) : undefined}
-                            />
-                            <div className="playlist-block-body">
-                              {musicEntries.length === 0 ? (
-                                <div className="px-2 py-1">
-                                  <div className="block-empty-drop relative rounded-xl border border-dashed border-[#353535] mx-1">
-                                    <DroppableSlot id={`slot-end-${plKey}|${blockKey}`} />
-                                    <p className="absolute inset-0 flex items-center justify-center pointer-events-none m-0 text-[0.78rem] text-slate-500 italic">
-                                      Arraste mídias aqui
-                                    </p>
+                {!loading && !error && data && (
+                  <div className="w-full">
+                    {visiblePlaylistGroups.map(({ plKey, pl, blocks }) => (
+                      <div key={plKey}>
+                        <h2 className="playlist-title">{pl.program}</h2>
+                        {blocks.map(([blockKey, block]) => {
+                          const musicEntries = Object.entries(blockMediaRecord(block));
+                          const blockDisplayStart = getBlockDisplayStart(block.start, musicEntries);
+                          return (
+                            <section
+                              key={`${plKey}-${blockKey}`}
+                              className={[
+                                "playlist-block",
+                                block.type === "musical" ? "playlist-block--musical" : "playlist-block--commercial",
+                              ].join(" ")}
+                            >
+                              <BlockHeader
+                                blockType={block.type}
+                                startLabel={typeof blockDisplayStart === 'number' ? formatSecondsOfDay(blockDisplayStart, true) : undefined}
+                              />
+                              <div className="playlist-block-body">
+                                {musicEntries.length === 0 ? (
+                                  <div className="px-2 py-1">
+                                    <div className="block-empty-drop relative rounded-xl border border-dashed border-[#353535] mx-1">
+                                      <DroppableSlot id={`slot-end-${plKey}|${blockKey}`} />
+                                      <p className="absolute inset-0 flex items-center justify-center pointer-events-none m-0 text-[0.78rem] text-slate-500 italic">
+                                        Arraste mídias aqui
+                                      </p>
+                                    </div>
                                   </div>
-                                </div>
-                              ) : (
-                                <>
-                                  {musicEntries.map(([musicKey, music]) => {
-                                    const uniqueId = `${plKey}-${blockKey}-${musicKey}`;
-                                    const isCurrentlyPlaying = playingId === uniqueId;
-                                    const isBackgroundPlaying = backgroundIds.includes(uniqueId);
-                                    const scheduleStart = scheduleStarts[uniqueId];
-                                    const isDisabled = legacyBool(music.disabled) ||
-                                      legacyBool(music.discarded) ||
-                                      legacyBool(music.manualDiscard ?? music.manual_discard) ||
-                                      scheduleStart?.active === false;
-                                    return (
-                                      <div
-                                        key={musicKey}
-                                        ref={(node) => {
-                                          if (node) playlistItemRefs.current[uniqueId] = node;
-                                          else delete playlistItemRefs.current[uniqueId];
-                                        }}
-                                        data-playlist-music-id={uniqueId}
-                                      >
-                                        <DroppableSlot id={`slot-before-${plKey}|${blockKey}|${musicKey}`} />
-                                        <PlaylistMusicItem
-                                          music={music}
-                                          startLabel={scheduleStart?.startLabel}
-                                          isCurrentlyPlaying={isCurrentlyPlaying}
-                                          isBackgroundPlaying={isBackgroundPlaying}
-                                          isScheduledUpcoming={scheduledMusicId === uniqueId && !isCurrentlyPlaying && !isBackgroundPlaying}
-                                          isDisabled={isDisabled}
-                                          isPlaying={isPlaying}
-                                          currentTime={currentTime}
-                                          duration={duration}
-                                          backgroundPosition={backgroundPositions[uniqueId] ?? 0}
-                                          onPlay={() => togglePlay(uniqueId)}
-                                          onSeek={handleSeek}
-                                          showTrashSkipIcon={trashHighlightPlaylistId === uniqueId}
-                                          onPlaylistItemSelect={() =>
-                                            setTrashHighlightPlaylistId((prev) =>
-                                              prev === uniqueId ? null : uniqueId
-                                            )
-                                          }
-                                          onTrashRemove={
-                                            trashHighlightPlaylistId === uniqueId
-                                              ? () => {
-                                                setTrashHighlightPlaylistId(null);
-                                                setData((prev) => {
-                                                  if (!prev) return prev;
-                                                  return (
-                                                    removeMusicFromBlock(prev, plKey, blockKey, musicKey) ??
-                                                    prev
-                                                  );
-                                                });
-                                              }
-                                              : undefined
-                                          }
-                                        />
-                                      </div>
-                                    );
-                                  })}
-                                  <DroppableSlot id={`slot-end-${plKey}|${blockKey}`} />
-                                </>
-                              )}
-                            </div>
-                            <div className="playlist-block-footer" />
-                          </section>
-                        );
-                      })}
-                    </div>
-                  ))}
-                  {playlistHasMoreTail && (
-                    <div className="flex flex-wrap gap-2 px-3 py-3 border-t border-[#353535] mt-1">
-                      <button
-                        type="button"
-                        className="flex-1 min-w-[140px] rounded-lg border border-[#353535] bg-white/5 px-3 py-2 text-[0.8rem] text-white/90 hover:bg-white/10 transition-colors"
-                        onClick={loadNextPlaylistBlock}
-                      >
-                        Carregar o próximo bloco
-                      </button>
-                      <button
-                        type="button"
-                        className="flex-1 min-w-[140px] rounded-lg border border-emerald-500/35 bg-emerald-600/15 px-3 py-2 text-[0.8rem] text-emerald-100 hover:bg-emerald-600/25 transition-colors"
-                        onClick={loadAllPlaylistBlocksUntilEnd}
-                      >
-                        Carregar todos
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
+                                ) : (
+                                  <>
+                                    {musicEntries.map(([musicKey, music]) => {
+                                      const uniqueId = `${plKey}-${blockKey}-${musicKey}`;
+                                      const isCurrentlyPlaying = playingId === uniqueId;
+                                      const isBackgroundPlaying = backgroundIds.includes(uniqueId);
+                                      const scheduleStart = scheduleStarts[uniqueId];
+                                      const isDisabled = legacyBool(music.disabled) ||
+                                        legacyBool(music.discarded) ||
+                                        legacyBool(music.manualDiscard ?? music.manual_discard) ||
+                                        scheduleStart?.active === false;
+                                      return (
+                                        <div
+                                          key={musicKey}
+                                          ref={(node) => {
+                                            if (node) playlistItemRefs.current[uniqueId] = node;
+                                            else delete playlistItemRefs.current[uniqueId];
+                                          }}
+                                          data-playlist-music-id={uniqueId}
+                                        >
+                                          <DroppableSlot id={`slot-before-${plKey}|${blockKey}|${musicKey}`} />
+                                          <PlaylistMusicItem
+                                            music={music}
+                                            startLabel={scheduleStart?.startLabel}
+                                            isCurrentlyPlaying={isCurrentlyPlaying}
+                                            isBackgroundPlaying={isBackgroundPlaying}
+                                            isScheduledUpcoming={scheduledMusicId === uniqueId && !isCurrentlyPlaying && !isBackgroundPlaying}
+                                            isDisabled={isDisabled}
+                                            isPlaying={isPlaying}
+                                            currentTime={currentTime}
+                                            duration={duration}
+                                            backgroundPosition={backgroundPositions[uniqueId] ?? 0}
+                                            onPlay={() => togglePlay(uniqueId)}
+                                            onSeek={handleSeek}
+                                            showTrashSkipIcon={trashHighlightPlaylistId === uniqueId}
+                                            onPlaylistItemSelect={() =>
+                                              setTrashHighlightPlaylistId((prev) =>
+                                                prev === uniqueId ? null : uniqueId
+                                              )
+                                            }
+                                            onTrashRemove={
+                                              trashHighlightPlaylistId === uniqueId
+                                                ? () => {
+                                                  setTrashHighlightPlaylistId(null);
+                                                  setData((prev) => {
+                                                    if (!prev) return prev;
+                                                    return (
+                                                      removeMusicFromBlock(prev, plKey, blockKey, musicKey) ??
+                                                      prev
+                                                    );
+                                                  });
+                                                }
+                                                : undefined
+                                            }
+                                          />
+                                        </div>
+                                      );
+                                    })}
+                                    <DroppableSlot id={`slot-end-${plKey}|${blockKey}`} />
+                                  </>
+                                )}
+                              </div>
+                              <div className="playlist-block-footer" />
+                            </section>
+                          );
+                        })}
+                      </div>
+                    ))}
+                    {playlistHasMoreTail && (
+                      <div className="flex flex-wrap gap-2 px-3 py-3 border-t border-[#353535] mt-1">
+                        <button
+                          type="button"
+                          className="flex-1 min-w-[140px] rounded-lg border border-[#353535] bg-white/5 px-3 py-2 text-[0.8rem] text-white/90 hover:bg-white/10 transition-colors"
+                          onClick={loadNextPlaylistBlock}
+                        >
+                          Carregar o próximo bloco
+                        </button>
+                        <button
+                          type="button"
+                          className="flex-1 min-w-[140px] rounded-lg border border-emerald-500/35 bg-emerald-600/15 px-3 py-2 text-[0.8rem] text-emerald-100 hover:bg-emerald-600/25 transition-colors"
+                          onClick={loadAllPlaylistBlocksUntilEnd}
+                        >
+                          Carregar todos
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
