@@ -1,5 +1,6 @@
 import type { Music } from '../types';
 
+import { formatTimeRemaining } from '../time';
 import proximaBcoImg from '../assets/proxima_bco.png';
 import lixeiraImg from '../assets/lixeira.png';
 import { invoke } from '@tauri-apps/api/core';
@@ -21,14 +22,6 @@ const BAR_PLAYED = 'rgba(148, 163, 184, 0.62)';
 const BAR_MIX = 'rgba(255, 100, 50, 0.45)';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function formatTimeRemaining(seconds: number) {
-  if (isNaN(seconds) || seconds < 0) return '00:00';
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-}
 
 function splitArtistTitle(text: string): { artist: string | null; track: string } {
   const idx = text.indexOf(' - ');

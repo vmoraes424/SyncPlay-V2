@@ -18,6 +18,15 @@ export function formatSecondsOfDay(seconds: number, showSeconds = true) {
   return showSeconds ? `${hh}:${mm}:${ss}` : `${hh}:${mm}`;
 }
 
+/** HH:MM:SS (mesmo padrão usado no tempo restante da playlist). */
+export function formatTimeRemaining(seconds: number) {
+  if (isNaN(seconds) || seconds < 0) return "00:00:00";
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
 export function parseTimeToSeconds(input: string) {
   const parts = input.trim().split(':');
   const parse = (value: string) => {
