@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { MixConfig, Music, SyncPlayData } from "../types";
 import { getAppSetting } from "../settings/settingsStorage";
@@ -54,6 +54,10 @@ function todayPlaylistDate() {
 function addDaysToPlaylistDate(dateString: string, days: number) {
   const [year, month, day] = dateString.split('-').map(Number);
   return formatPlaylistDate(new Date(year, month - 1, day + days));
+}
+
+function comparePlaylistDates(a: string, b: string) {
+  return a.localeCompare(b);
 }
 
 function parsePositiveIntSetting(value: unknown, fallback: number): number {
@@ -204,9 +208,23 @@ function buildVisiblePlaylistSlice(
   return { groups: visibleGroups, hasMoreTail };
 }
 
+function countBlocksAfterAnchor(data: SyncPlayData, anchorMusicId: string | null) {
+  if (!anchorMusicId) return null;
+
+  const orderedBlocks = orderedPlaylistEntries(data).flatMap(([plKey, pl]) =>
+    orderedBlockEntries(pl.blocks).map(([blockKey]) => ({ plKey, blockKey }))
+  );
+  const anchorIndex = orderedBlocks.findIndex(({ plKey, blockKey }) =>
+    anchorMusicId.startsWith(`${plKey}-${blockKey}-`)
+  );
+
+  return anchorIndex >= 0 ? orderedBlocks.length - anchorIndex - 1 : null;
+}
+
 export function usePlaylistData({ anchorMusicId }: UsePlaylistDataOptions) {
   const [data, setData] = useState<SyncPlayData | null>(null);
   const [mixConfig, setMixConfig] = useState<MixConfig | null>(null);
+  const [playlistBaseDate, setPlaylistBaseDate] = useState(() => todayPlaylistDate());
   const [playlistDate, setPlaylistDate] = useState(() => todayPlaylistDate());
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -217,6 +235,8 @@ export function usePlaylistData({ anchorMusicId }: UsePlaylistDataOptions) {
   const [playlistShowAllTail, setPlaylistShowAllTail] = useState(false);
   const [playlistAppendingDay, setPlaylistAppendingDay] = useState(false);
   const [playlistAppendError, setPlaylistAppendError] = useState("");
+  const appendInFlightRef = useRef(false);
+  const lastAutoAppendDateRef = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -271,6 +291,7 @@ export function usePlaylistData({ anchorMusicId }: UsePlaylistDataOptions) {
         fetchConfigSafe<MixConfig>('Configs/mix.json'),
       ]);
       setMixConfig(cfg);
+      setPlaylistBaseDate(date);
       setPlaylistDate(date);
       setPlaylistExtraAfterBlocks(0);
       setPlaylistShowAllTail(showAllTail);
@@ -285,10 +306,20 @@ export function usePlaylistData({ anchorMusicId }: UsePlaylistDataOptions) {
     }
   }, []);
 
-  const appendNextPlaylistDay = useCallback(async (showAllTail = false) => {
-    if (playlistAppendingDay) return;
+  const appendNextPlaylistDay = useCallback(async (
+    showAllTail = false,
+    expandTail = true,
+    source: 'manual-next' | 'manual-all' | 'auto-tail' = 'manual-next'
+  ) => {
+    if (appendInFlightRef.current) return false;
 
     const nextDate = addDaysToPlaylistDate(playlistDate, 1);
+    const maxAutoAppendDate = addDaysToPlaylistDate(todayPlaylistDate(), 1);
+    if (source === 'auto-tail' && comparePlaylistDates(nextDate, maxAutoAppendDate) > 0) {
+      return false;
+    }
+
+    appendInFlightRef.current = true;
     setPlaylistAppendingDay(true);
     setPlaylistAppendError("");
     try {
@@ -302,15 +333,18 @@ export function usePlaylistData({ anchorMusicId }: UsePlaylistDataOptions) {
       setData((prev) => prev ? appendPlaylistDay(prev, nextData, nextDate) : nextData);
       if (showAllTail) {
         setPlaylistShowAllTail(true);
-      } else {
+      } else if (expandTail) {
         setPlaylistExtraAfterBlocks((n) => n + 1);
       }
+      return true;
     } catch (err) {
       setPlaylistAppendError(`Erro ao carregar a playlist: ${err}`);
+      return false;
     } finally {
+      appendInFlightRef.current = false;
       setPlaylistAppendingDay(false);
     }
-  }, [playlistAppendingDay, playlistDate]);
+  }, [playlistDate]);
 
   const loadNextPlaylistBlock = useCallback(() => {
     if (playlistHasMoreTail) {
@@ -327,8 +361,33 @@ export function usePlaylistData({ anchorMusicId }: UsePlaylistDataOptions) {
       return;
     }
 
-    void appendNextPlaylistDay(true);
+    void appendNextPlaylistDay(true, true, 'manual-all');
   }, [appendNextPlaylistDay, playlistHasMoreTail]);
+
+  useEffect(() => {
+    if (!data || loading || playlistAppendingDay || playlistHasMoreTail) return;
+
+    const remainingAfterAnchor = countBlocksAfterAnchor(data, anchorMusicId);
+    if (
+      remainingAfterAnchor === null ||
+      remainingAfterAnchor >= playlistBlockWindow.after ||
+      lastAutoAppendDateRef.current === playlistDate
+    ) {
+      return;
+    }
+
+    lastAutoAppendDateRef.current = playlistDate;
+    void appendNextPlaylistDay(false, false, 'auto-tail');
+  }, [
+    anchorMusicId,
+    appendNextPlaylistDay,
+    data,
+    loading,
+    playlistAppendingDay,
+    playlistBlockWindow.after,
+    playlistDate,
+    playlistHasMoreTail,
+  ]);
 
   useEffect(() => {
     void fetchPlaylist(todayPlaylistDate());
@@ -338,6 +397,7 @@ export function usePlaylistData({ anchorMusicId }: UsePlaylistDataOptions) {
     data,
     setData,
     mixConfig,
+    playlistBaseDate,
     error,
     loading,
     visiblePlaylistGroups,

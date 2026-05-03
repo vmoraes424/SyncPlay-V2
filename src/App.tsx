@@ -290,6 +290,26 @@ function getBlockDisplayStart(blockStart: number | undefined, musicEntries: Arra
   )?.[1].start;
 }
 
+function playlistDateMidnightMs(dateString: string) {
+  const [year, month, day] = dateString.split('-').map(Number);
+  return new Date(year, month - 1, day).getTime();
+}
+
+function currentPlaylistDayIndex(baseDate: string) {
+  const now = new Date();
+  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const days = Math.floor((todayMidnight - playlistDateMidnightMs(baseDate)) / (SECONDS_PER_DAY * 1000));
+  return Math.max(0, days);
+}
+
+function scheduledBlocksForPlaybackWindow(blocks: ScheduledBlockDto[], baseDate: string) {
+  const dayIndex = currentPlaylistDayIndex(baseDate);
+  const dayStart = dayIndex * SECONDS_PER_DAY;
+  const dayEnd = dayStart + (SECONDS_PER_DAY * 2);
+
+  return blocks.filter((block) => block.startSec >= dayStart && block.startSec < dayEnd);
+}
+
 // --- DroppableSlot ---
 // Linha fina entre os itens da playlist — torna-se o target do drop.
 
@@ -382,6 +402,7 @@ function App() {
     data,
     setData,
     mixConfig,
+    playlistBaseDate,
     error,
     loading,
     visiblePlaylistGroups,
@@ -724,9 +745,6 @@ function App() {
     if (!data) return;
 
     const { playableItems, scheduledBlocks } = buildPlaylistRuntimeItems(data, mixConfig);
-    const currentDayScheduledBlocks = scheduledBlocks.filter(
-      (block) => block.startSec >= 0 && block.startSec < SECONDS_PER_DAY
-    );
     let cancelled = false;
 
     const clearScheduleTimer = () => {
@@ -740,6 +758,11 @@ function App() {
       clearScheduleTimer();
 
       try {
+        const currentDayScheduledBlocks = scheduledBlocksForPlaybackWindow(
+          scheduledBlocks,
+          playlistBaseDate
+        );
+
         if (currentDayScheduledBlocks.length === 0) {
           playableItemsRef.current = playableItems;
           await invoke("set_queue", { items: playableItems });
@@ -809,7 +832,7 @@ function App() {
       cancelled = true;
       clearScheduleTimer();
     };
-  }, [data, mixConfig, scrollToPlaylistMusic]);
+  }, [data, mixConfig, playlistBaseDate, scrollToPlaylistMusic]);
 
   // --- DnD ---
 
