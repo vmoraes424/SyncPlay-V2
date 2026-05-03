@@ -43,7 +43,20 @@ export interface MixConfig {
 
 export interface ExtraData {
   fixed?: boolean;
+  favorite?: boolean;
+  fitting?: boolean | number | string;
   mix?: MixData;
+  /** Filtros / metadados SyncPlay (IDs ou texto já resolvido) */
+  category?: string | number;
+  style?: string | number;
+  rhythm?: string | number;
+  released?: string | number;
+  nationality?: string | number;
+  /** Acervo — mídia não-música */
+  media_type?: string | number;
+  tag_bumper?: string | number;
+  /** Coleção única ou lista de IDs (acervo) */
+  collection?: string | number | string[];
 }
 
 export interface Music {
@@ -58,6 +71,8 @@ export interface Music {
   /** Caminho ou URL da imagem de capa */
   cover?: string;
   extra?: ExtraData;
+  /** Legado: HTML extra (exibido como texto seguro no React) */
+  extraInfoHTML?: string;
   disabled?: boolean | number;
   discarded?: boolean | number;
   manualDiscard?: boolean | number;

@@ -29,7 +29,20 @@ import { PlaylistLoadMoreControls } from './components/playlist/PlaylistLoadMore
 import { PlaylistPlaybackBar } from './components/playlist/PlaylistPlaybackBar';
 import { SettingsDock } from './components/settings/SettingsDock';
 import { SECONDS_PER_DAY, usePlaylistData } from './hooks/usePlaylistData';
+import { useSyncplayLibrary } from './hooks/useSyncplayLibrary';
 import { formatSecondsOfDay } from './time';
+import { SyncplayLibraryProvider } from './library/SyncplayLibraryContext';
+
+type PlaylistItemLocation = {
+  plKey: string;
+  blockKey: string;
+  musicKey: string;
+};
+
+type PlaylistItemDragData = PlaylistItemLocation & {
+  uniqueId: string;
+  music: Music;
+};
 
 async function fetchConfigSafe<T>(filename: string): Promise<T | null> {
   try {
@@ -57,30 +70,30 @@ function insertMusic(
   file: DirFile,
   plKey: string,
   blockKey: string,
-  beforeKey: string | null
+  beforeKey: string | null,
+  libraryExtra?: Music['extra']
 ): SyncPlayData {
   const block = data.playlists[plKey].blocks[blockKey];
-  const useCommercials = block.type === 'commercial';
+  const mediaKind = blockMediaKind(block);
   const prev = blockMediaRecord(block);
   const entries = Object.entries(prev);
   const newKey = `dropped-${Date.now()}`;
   const newMusic: Music = {
     text: file.name.replace(/\.[^/.]+$/, ""),
     path: file.path,
-    type: useCommercials ? "commercial" : "music",
+    type: mediaKind === "commercials" ? "commercial" : "music",
+    ...(libraryExtra && Object.keys(libraryExtra).length > 0 ? { extra: { ...libraryExtra } } : {}),
   };
 
   const insertIdx =
     beforeKey === null
       ? entries.length
-      : Math.max(0, entries.findIndex(([k]) => k === beforeKey));
+      : entries.findIndex(([k]) => k === beforeKey);
 
-  entries.splice(insertIdx, 0, [newKey, newMusic]);
+  entries.splice(insertIdx === -1 ? entries.length : insertIdx, 0, [newKey, newMusic]);
 
   const updatedMedia = Object.fromEntries(entries);
-  const nextBlock = useCommercials
-    ? { ...block, commercials: updatedMedia }
-    : { ...block, musics: updatedMedia };
+  const nextBlock = setBlockMediaRecord(block, mediaKind, updatedMedia);
 
   return {
     ...data,
@@ -108,14 +121,11 @@ function removeMusicFromBlock(
 ): SyncPlayData | null {
   const block = data.playlists[plKey]?.blocks[blockKey];
   if (!block) return null;
-  const useCommercials =
-    block.commercials != null && Object.keys(block.commercials).length > 0;
-  const record = useCommercials ? block.commercials! : block.musics ?? {};
+  const mediaKind = blockMediaKind(block);
+  const record = blockMediaRecord(block);
   if (!(musicKey in record)) return null;
   const { [musicKey]: _removed, ...rest } = record;
-  const nextBlock = useCommercials
-    ? { ...block, commercials: rest }
-    : { ...block, musics: rest };
+  const nextBlock = setBlockMediaRecord(block, mediaKind, rest);
 
   return {
     ...data,
@@ -144,11 +154,158 @@ function orderedBlockEntries(blocks: SyncPlayData['playlists'][string]['blocks']
   return Object.entries(blocks).sort(([, a], [, b]) => numericStart(a.start) - numericStart(b.start));
 }
 
+function blockMediaKind(block: SyncPlayData['playlists'][string]['blocks'][string]): 'musics' | 'commercials' {
+  const commercials = block.commercials;
+  if (block.type === 'commercial' || (commercials && Object.keys(commercials).length > 0)) {
+    return 'commercials';
+  }
+  return 'musics';
+}
+
 /** Músicas ficam em `musics`; comerciais na playlist oficial vêm em `commercials`. */
 function blockMediaRecord(block: SyncPlayData['playlists'][string]['blocks'][string]): Record<string, Music> {
-  const commercials = block.commercials;
-  if (commercials && Object.keys(commercials).length > 0) return commercials;
-  return block.musics ?? {};
+  return blockMediaKind(block) === 'commercials'
+    ? block.commercials ?? {}
+    : block.musics ?? {};
+}
+
+function setBlockMediaRecord(
+  block: SyncPlayData['playlists'][string]['blocks'][string],
+  mediaKind: 'musics' | 'commercials',
+  media: Record<string, Music>
+) {
+  return mediaKind === 'commercials'
+    ? { ...block, commercials: media }
+    : { ...block, musics: media };
+}
+
+function parsePlaylistItemTarget(value: string): PlaylistItemLocation | null {
+  const [plKey, blockKey, musicKey] = value.split("|");
+  if (!plKey || !blockKey || !musicKey) return null;
+  return { plKey, blockKey, musicKey };
+}
+
+function beforeKeyForPlaylistTarget(
+  data: SyncPlayData,
+  target: PlaylistItemLocation,
+  placement: 'before' | 'after'
+) {
+  if (placement === 'before') return target.musicKey;
+
+  const block = data.playlists[target.plKey]?.blocks[target.blockKey];
+  if (!block) return null;
+
+  const keys = Object.keys(blockMediaRecord(block));
+  const currentIndex = keys.indexOf(target.musicKey);
+  if (currentIndex === -1 || currentIndex === keys.length - 1) return null;
+  return keys[currentIndex + 1];
+}
+
+function resolvePlaylistDropTarget(
+  data: SyncPlayData,
+  overId: string,
+  placement: 'before' | 'after'
+): { plKey: string; blockKey: string; beforeKey: string | null } | null {
+  if (overId.startsWith("slot-before-")) {
+    const target = parsePlaylistItemTarget(overId.replace("slot-before-", ""));
+    if (!target) return null;
+    return { plKey: target.plKey, blockKey: target.blockKey, beforeKey: target.musicKey };
+  }
+
+  if (overId.startsWith("slot-end-")) {
+    const [plKey, blockKey] = overId.replace("slot-end-", "").split("|");
+    if (!plKey || !blockKey) return null;
+    return { plKey, blockKey, beforeKey: null };
+  }
+
+  if (overId.startsWith("playlist-item-")) {
+    const target = parsePlaylistItemTarget(overId.replace("playlist-item-", ""));
+    if (!target) return null;
+    return {
+      plKey: target.plKey,
+      blockKey: target.blockKey,
+      beforeKey: beforeKeyForPlaylistTarget(data, target, placement),
+    };
+  }
+
+  return null;
+}
+
+function moveMusicInPlaylist(
+  data: SyncPlayData,
+  source: PlaylistItemLocation,
+  target: { plKey: string; blockKey: string; beforeKey: string | null }
+): SyncPlayData {
+  const sourceBlock = data.playlists[source.plKey]?.blocks[source.blockKey];
+  const targetBlock = data.playlists[target.plKey]?.blocks[target.blockKey];
+  if (!sourceBlock || !targetBlock) return data;
+
+  const sourceKind = blockMediaKind(sourceBlock);
+  const targetKind = blockMediaKind(targetBlock);
+  const sourceEntries = Object.entries(blockMediaRecord(sourceBlock));
+  const sourceEntry = sourceEntries.find(([key]) => key === source.musicKey);
+  if (!sourceEntry) return data;
+
+  if (source.plKey === target.plKey && source.blockKey === target.blockKey && sourceKind === targetKind) {
+    if (target.beforeKey === source.musicKey) return data;
+
+    const nextEntries = sourceEntries.filter(([key]) => key !== source.musicKey);
+    const insertIndex = target.beforeKey === null
+      ? nextEntries.length
+      : nextEntries.findIndex(([key]) => key === target.beforeKey);
+
+    nextEntries.splice(insertIndex === -1 ? nextEntries.length : insertIndex, 0, sourceEntry);
+
+    return {
+      ...data,
+      playlists: {
+        ...data.playlists,
+        [source.plKey]: {
+          ...data.playlists[source.plKey],
+          blocks: {
+            ...data.playlists[source.plKey].blocks,
+            [source.blockKey]: setBlockMediaRecord(sourceBlock, sourceKind, Object.fromEntries(nextEntries)),
+          },
+        },
+      },
+    };
+  }
+
+  const remainingSourceEntries = sourceEntries.filter(([key]) => key !== source.musicKey);
+  const targetEntries = Object.entries(blockMediaRecord(targetBlock));
+  const targetInsertIndex = target.beforeKey === null
+    ? targetEntries.length
+    : targetEntries.findIndex(([key]) => key === target.beforeKey);
+  const targetKey = targetEntries.some(([key]) => key === source.musicKey)
+    ? `moved-${Date.now()}`
+    : source.musicKey;
+
+  targetEntries.splice(
+    targetInsertIndex === -1 ? targetEntries.length : targetInsertIndex,
+    0,
+    [targetKey, sourceEntry[1]]
+  );
+
+  const sourceBlockNext = setBlockMediaRecord(sourceBlock, sourceKind, Object.fromEntries(remainingSourceEntries));
+  const targetBlockNext = setBlockMediaRecord(targetBlock, targetKind, Object.fromEntries(targetEntries));
+
+  const nextPlaylists = { ...data.playlists };
+  nextPlaylists[source.plKey] = {
+    ...nextPlaylists[source.plKey],
+    blocks: {
+      ...nextPlaylists[source.plKey].blocks,
+      [source.blockKey]: sourceBlockNext,
+    },
+  };
+  nextPlaylists[target.plKey] = {
+    ...nextPlaylists[target.plKey],
+    blocks: {
+      ...nextPlaylists[target.plKey].blocks,
+      [target.blockKey]: targetBlockNext,
+    },
+  };
+
+  return { ...data, playlists: nextPlaylists };
 }
 
 function musicForPlaylistItemId(data: SyncPlayData | null, uniqueId: string | null): Music | null {
@@ -439,6 +596,58 @@ function DraggableMidiaItem({
   );
 }
 
+interface PlaylistDragDropItemProps {
+  id: string;
+  item: PlaylistItemDragData;
+  setPlaylistItemRef: (node: HTMLDivElement | null) => void;
+  children: React.ReactNode;
+}
+
+function PlaylistDragDropItem({
+  id,
+  item,
+  setPlaylistItemRef,
+  children,
+}: PlaylistDragDropItemProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef: setDraggableNodeRef,
+    transform,
+    isDragging,
+  } = useDraggable({
+    id,
+    data: { playlistItem: item },
+  });
+  const { setNodeRef: setDroppableNodeRef, isOver } = useDroppable({
+    id: `playlist-item-${item.plKey}|${item.blockKey}|${item.musicKey}`,
+  });
+
+  const setRefs = useCallback((node: HTMLDivElement | null) => {
+    setDraggableNodeRef(node);
+    setDroppableNodeRef(node);
+    setPlaylistItemRef(node);
+  }, [setDraggableNodeRef, setDroppableNodeRef, setPlaylistItemRef]);
+
+  const style: React.CSSProperties = {
+    transform: CSS.Translate.toString(transform),
+    opacity: isDragging ? 0.35 : 1,
+  };
+
+  return (
+    <div
+      ref={setRefs}
+      className={`playlist-item-drop-target${isOver ? " playlist-item-drop-target--over" : ""}`}
+      style={style}
+      data-playlist-music-id={item.uniqueId}
+      {...listeners}
+      {...attributes}
+    >
+      {children}
+    </div>
+  );
+}
+
 // --- App ---
 
 function App() {
@@ -481,6 +690,7 @@ function App() {
 
   // DnD
   const [activeFile, setActiveFile] = useState<DirFile | null>(null);
+  const [activePlaylistMusic, setActivePlaylistMusic] = useState<PlaylistItemDragData | null>(null);
   const [isOverPlaylist, setIsOverPlaylist] = useState(false);
 
   // Coluna Direita (Selects & Files)
@@ -495,16 +705,38 @@ function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
 
+  const {
+    libraryMaps,
+    filteredFiles,
+    libMusicFilterIds,
+    setLibMusicFilterIds,
+    resetLibMusicFilters,
+    playlistFilterVis,
+    libraryYearDecade,
+    showNameMusicFiles,
+    showNameMediaFiles,
+    playlistFilterFocus,
+    applyPlaylistFilterClick,
+    musicCategoryMap,
+    musicStyleMap,
+    musicRhythmMap,
+    musicNationalityMap,
+    getDroppedMusicExtra,
+  } = useSyncplayLibrary({
+    dirFiles,
+    searchQuery,
+    mediaCategory,
+    setMediaCategory,
+    setDirectoryValue,
+    setSearchQuery,
+  });
+
   // CUE Player
   const cueRef = useRef<HTMLAudioElement | null>(null);
   const [cueFile, setCueFile] = useState<string | null>(null);
   const [cuePlaying, setCuePlaying] = useState(false);
   const [cueTime, setCueTime] = useState(0);
   const [cueDuration, setCueDuration] = useState(0);
-
-  const filteredFiles = dirFiles.filter(f =>
-    f.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
 
   const parentRef = useRef<HTMLDivElement>(null);
 
@@ -958,37 +1190,49 @@ function App() {
   const handleDragStart = (event: DragStartEvent) => {
     const file = event.active.data.current?.file as DirFile | undefined;
     if (file) setActiveFile(file);
+    const playlistItem = event.active.data.current?.playlistItem as PlaylistItemDragData | undefined;
+    if (playlistItem) setActivePlaylistMusic(playlistItem);
   };
 
   const handleDragOver = (event: any) => {
     const id = event.over?.id as string ?? null;
-    setIsOverPlaylist(!!id && id.startsWith("slot-"));
+    setIsOverPlaylist(!!id && (id.startsWith("slot-") || id.startsWith("playlist-item-")));
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     setActiveFile(null);
+    setActivePlaylistMusic(null);
     setIsOverPlaylist(false);
     if (!over || !data) return;
 
     const file = active.data.current?.file as DirFile;
-    if (!file) return;
+    const playlistItem = active.data.current?.playlistItem as PlaylistItemLocation | undefined;
+    if (!file && !playlistItem) return;
 
     const overId = over.id as string;
+    const activeRect = active.rect.current.translated;
+    const placement = activeRect && activeRect.top + activeRect.height / 2 > over.rect.top + over.rect.height / 2
+      ? 'after'
+      : 'before';
+    const target = resolvePlaylistDropTarget(data, overId, placement);
+    if (!target) return;
 
-    // slot-before-{plKey}|{blockKey}|{musicKey}  → insere ANTES
-    if (overId.startsWith("slot-before-")) {
-      const [plKey, blockKey, musicKey] = overId.replace("slot-before-", "").split("|");
-      setData(prev => insertMusic(prev!, file, plKey, blockKey, musicKey));
+    if (file) {
+      const libExtra = getDroppedMusicExtra(file.name);
+      setData((prev) =>
+        prev ? insertMusic(prev, file, target.plKey, target.blockKey, target.beforeKey, libExtra) : prev
+      );
+      return;
     }
-    // slot-end-{plKey}|{blockKey}  → append ao final
-    else if (overId.startsWith("slot-end-")) {
-      const [plKey, blockKey] = overId.replace("slot-end-", "").split("|");
-      setData(prev => insertMusic(prev!, file, plKey, blockKey, null));
+
+    if (playlistItem) {
+      setData(prev => prev ? moveMusicInPlaylist(prev, playlistItem, target) : prev);
     }
   };
 
   return (
+    <SyncplayLibraryProvider value={libraryMaps}>
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
       <div className="grid grid-cols-2 h-[calc(100vh-50px)] bg-[#262626]">
 
@@ -1080,50 +1324,68 @@ function App() {
                                         legacyBool(music.discarded) ||
                                         legacyBool(music.manualDiscard ?? music.manual_discard) ||
                                         scheduleStart?.active === false;
+                                      const playlistDragItem = {
+                                        plKey,
+                                        blockKey,
+                                        musicKey,
+                                        uniqueId,
+                                        music,
+                                      };
                                       return (
                                         <div
                                           key={musicKey}
-                                          ref={(node) => {
-                                            if (node) playlistItemRefs.current[uniqueId] = node;
-                                            else delete playlistItemRefs.current[uniqueId];
-                                          }}
-                                          data-playlist-music-id={uniqueId}
                                         >
                                           <DroppableSlot id={`slot-before-${plKey}|${blockKey}|${musicKey}`} />
-                                          <PlaylistMusicItem
-                                            music={music}
-                                            startLabel={scheduleStart?.startLabel}
-                                            isCurrentlyPlaying={isCurrentlyPlaying}
-                                            isBackgroundPlaying={isBackgroundPlaying}
-                                            isScheduledUpcoming={scheduledMusicId === uniqueId && !isCurrentlyPlaying && !isBackgroundPlaying}
-                                            isDisabled={isDisabled}
-                                            isPlaying={isPlaying}
-                                            currentTime={currentTime}
-                                            duration={duration}
-                                            backgroundPosition={backgroundPositions[uniqueId] ?? 0}
-                                            onPlay={() => togglePlay(uniqueId)}
-                                            onSeek={handleSeek}
-                                            showTrashSkipIcon={trashHighlightPlaylistId === uniqueId}
-                                            onPlaylistItemSelect={() =>
-                                              setTrashHighlightPlaylistId((prev) =>
-                                                prev === uniqueId ? null : uniqueId
-                                              )
-                                            }
-                                            onTrashRemove={
-                                              trashHighlightPlaylistId === uniqueId
-                                                ? () => {
-                                                  setTrashHighlightPlaylistId(null);
-                                                  setData((prev) => {
-                                                    if (!prev) return prev;
-                                                    return (
-                                                      removeMusicFromBlock(prev, plKey, blockKey, musicKey) ??
-                                                      prev
-                                                    );
-                                                  });
-                                                }
-                                                : undefined
-                                            }
-                                          />
+                                          <PlaylistDragDropItem
+                                            id={uniqueId}
+                                            item={playlistDragItem}
+                                            setPlaylistItemRef={(node) => {
+                                              if (node) playlistItemRefs.current[uniqueId] = node;
+                                              else delete playlistItemRefs.current[uniqueId];
+                                            }}
+                                          >
+                                            <PlaylistMusicItem
+                                              music={music}
+                                              itemUniqueId={uniqueId}
+                                              filterVisibility={playlistFilterVis}
+                                              libraryYearDecade={libraryYearDecade}
+                                              showMusicFileName={showNameMusicFiles}
+                                              showMediaFileName={showNameMediaFiles}
+                                              activeFilterKey={playlistFilterFocus}
+                                              onPlaylistFilterClick={applyPlaylistFilterClick}
+                                              startLabel={scheduleStart?.startLabel}
+                                              isCurrentlyPlaying={isCurrentlyPlaying}
+                                              isBackgroundPlaying={isBackgroundPlaying}
+                                              isScheduledUpcoming={scheduledMusicId === uniqueId && !isCurrentlyPlaying && !isBackgroundPlaying}
+                                              isDisabled={isDisabled}
+                                              isPlaying={isPlaying}
+                                              currentTime={currentTime}
+                                              duration={duration}
+                                              backgroundPosition={backgroundPositions[uniqueId] ?? 0}
+                                              onPlay={() => togglePlay(uniqueId)}
+                                              onSeek={handleSeek}
+                                              showTrashSkipIcon={trashHighlightPlaylistId === uniqueId}
+                                              onPlaylistItemSelect={() =>
+                                                setTrashHighlightPlaylistId((prev) =>
+                                                  prev === uniqueId ? null : uniqueId
+                                                )
+                                              }
+                                              onTrashRemove={
+                                                trashHighlightPlaylistId === uniqueId
+                                                  ? () => {
+                                                    setTrashHighlightPlaylistId(null);
+                                                    setData((prev) => {
+                                                      if (!prev) return prev;
+                                                      return (
+                                                        removeMusicFromBlock(prev, plKey, blockKey, musicKey) ??
+                                                        prev
+                                                      );
+                                                    });
+                                                  }
+                                                  : undefined
+                                              }
+                                            />
+                                          </PlaylistDragDropItem>
                                         </div>
                                       );
                                     })}
@@ -1192,6 +1454,98 @@ function App() {
                 )}
               </select>
             </div>
+
+            {mediaCategory === 'musics' && (
+              <div className="flex flex-col gap-2 border border-[#353535]/80 rounded-lg px-3 py-2 bg-black/15">
+                <div className="flex flex-wrap gap-2 items-center">
+                  <select
+                    className="min-w-[120px] flex-1 bg-white/5 border border-[#353535] rounded-lg px-2 py-1 text-white/90 text-[0.72rem] outline-none focus:border-neutral-500 [&>option]:bg-[#262626]"
+                    value={libMusicFilterIds.categoryId}
+                    onChange={(e) =>
+                      setLibMusicFilterIds((prev) => ({ ...prev, categoryId: e.target.value }))
+                    }
+                  >
+                    <option value="">Categoria</option>
+                    {Object.entries(musicCategoryMap).map(([id, label]) => (
+                      <option key={id} value={id}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    className="min-w-[120px] flex-1 bg-white/5 border border-[#353535] rounded-lg px-2 py-1 text-white/90 text-[0.72rem] outline-none focus:border-neutral-500 [&>option]:bg-[#262626]"
+                    value={libMusicFilterIds.styleId}
+                    onChange={(e) =>
+                      setLibMusicFilterIds((prev) => ({ ...prev, styleId: e.target.value }))
+                    }
+                  >
+                    <option value="">Estilo</option>
+                    {Object.entries(musicStyleMap).map(([id, label]) => (
+                      <option key={id} value={id}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    className="min-w-[120px] flex-1 bg-white/5 border border-[#353535] rounded-lg px-2 py-1 text-white/90 text-[0.72rem] outline-none focus:border-neutral-500 [&>option]:bg-[#262626]"
+                    value={libMusicFilterIds.rhythmId}
+                    onChange={(e) =>
+                      setLibMusicFilterIds((prev) => ({ ...prev, rhythmId: e.target.value }))
+                    }
+                  >
+                    <option value="">Ritmo</option>
+                    {Object.entries(musicRhythmMap).map(([id, label]) => (
+                      <option key={id} value={id}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    className="min-w-[120px] flex-1 bg-white/5 border border-[#353535] rounded-lg px-2 py-1 text-white/90 text-[0.72rem] outline-none focus:border-neutral-500 [&>option]:bg-[#262626]"
+                    value={libMusicFilterIds.nationalityId}
+                    onChange={(e) =>
+                      setLibMusicFilterIds((prev) => ({ ...prev, nationalityId: e.target.value }))
+                    }
+                  >
+                    <option value="">Nacionalidade</option>
+                    {Object.entries(musicNationalityMap).map(([id, label]) => (
+                      <option key={id} value={id}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-wrap gap-2 items-center">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    placeholder={libraryYearDecade ? 'Ano min (década)' : 'Ano min'}
+                    className="w-24 bg-white/5 border border-[#353535] rounded-lg px-2 py-1 text-white/90 text-[0.72rem] outline-none focus:border-neutral-500"
+                    value={libMusicFilterIds.yearMin}
+                    onChange={(e) =>
+                      setLibMusicFilterIds((prev) => ({ ...prev, yearMin: e.target.value }))
+                    }
+                  />
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    placeholder={libraryYearDecade ? 'Ano máx' : 'Ano máx'}
+                    className="w-24 bg-white/5 border border-[#353535] rounded-lg px-2 py-1 text-white/90 text-[0.72rem] outline-none focus:border-neutral-500"
+                    value={libMusicFilterIds.yearMax}
+                    onChange={(e) =>
+                      setLibMusicFilterIds((prev) => ({ ...prev, yearMax: e.target.value }))
+                    }
+                  />
+                  <button
+                    type="button"
+                    className="ml-auto text-[0.72rem] px-2 py-1 rounded-lg bg-white/10 text-slate-200 hover:bg-white/15 border border-[#353535]"
+                    onClick={() => resetLibMusicFilters()}
+                  >
+                    Limpar filtros
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="flex items-center gap-2 bg-white/3 border border-[#353535] rounded-lg px-3 py-1.5">
               <span className="text-[0.85rem] opacity-70" aria-hidden>🔍</span>
@@ -1313,9 +1667,15 @@ function App() {
             <span className="text-[0.62rem] bg-white/10 text-slate-400 px-1.5 py-0.5 rounded font-semibold shrink-0">{activeFile.name.split(".").pop()?.toUpperCase()}</span>
           </div>
         )}
+        {!activeFile && activePlaylistMusic && (
+          <div className="max-w-[520px] rounded-md border border-emerald-500/60 bg-[#262626] px-3 py-2 text-[0.82rem] text-white/90 shadow-[0_8px_28px_rgba(0,0,0,0.45)] pointer-events-none">
+            {activePlaylistMusic.music.text || "Mídia da playlist"}
+          </div>
+        )}
       </DragOverlay>
       <SettingsDock />
     </DndContext>
+    </SyncplayLibraryProvider>
   );
 }
 

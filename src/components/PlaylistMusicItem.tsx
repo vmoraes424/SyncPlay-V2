@@ -4,6 +4,19 @@ import { formatTimeRemaining } from '../time';
 import proximaBcoImg from '../assets/proxima_bco.png';
 import lixeiraImg from '../assets/lixeira.png';
 import { invoke } from '@tauri-apps/api/core';
+import { useSyncplayLibraryMaps } from '../library/SyncplayLibraryContext';
+import {
+  fileBaseKey,
+  getMediaAcervoLabels,
+  getMusicLibraryCollectionLabels,
+  resolveFilterLabel,
+  stripHtmlToText,
+} from '../library/syncplayLibrary';
+import { CollectionIcon } from '../assets/CollectionIcon';
+import { FiltersIcon } from '../assets/FiltersIcon';
+import { ArtistIcon } from '../assets/ArtistIcon';
+import { VarinhaMagicaIcon } from '../assets/VarinhaMagica';
+import { ReloadMusicIcon } from '../assets/ReloadMusicIcon';
 
 // ─── Gradientes e bordas por tipo de mídia ────────────────────────────────────
 
@@ -20,6 +33,33 @@ const TYPE_BORDER: Record<string, string> = {
 const BAR_TRACK = 'rgba(148, 163, 184, 0.24)';
 const BAR_PLAYED = 'rgba(148, 163, 184, 0.62)';
 const BAR_MIX = 'rgba(255, 100, 50, 0.45)';
+
+// ─── Filtros playlist ↔ biblioteca ─────────────────────────────────────────────
+
+export interface PlaylistFilterVisibility {
+  playlistShowMusicFilterYear: boolean;
+  playlistShowMusicFilterCategory: boolean;
+  playlistShowMusicFilterCollection: boolean;
+  playlistShowMusicFilterStyle: boolean;
+  playlistShowMusicFilterRhythm: boolean;
+  playlistShowMusicFilterNationality: boolean;
+  playlistShowMediaFilterCollection: boolean;
+  playlistShowMediaFilterTag: boolean;
+  playlistShowMediaFilterMediaType: boolean;
+}
+
+export type PlaylistFilterClickPayload =
+  | { kind: 'artist'; artist: string; itemUniqueId: string }
+  | { kind: 'year'; year: number; itemUniqueId: string }
+  | {
+    kind: 'musicMeta';
+    field: 'category' | 'style' | 'rhythm' | 'nationality';
+    displayText: string;
+    raw?: string | number;
+    itemUniqueId: string;
+  }
+  | { kind: 'collection'; label: string; itemUniqueId: string }
+  | { kind: 'mediaBrowse'; label: string; itemUniqueId: string };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -48,10 +88,21 @@ function formatMixLabel(seconds: number) {
   return `Mix ${t}`;
 }
 
+function parseYear(raw: string | number | undefined): number | null {
+  if (raw == null || raw === '') return null;
+  const n = typeof raw === 'number' ? raw : parseInt(String(raw).replace(/\D/g, ''), 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function chipActive(activeFilterKey: string | null, itemUniqueId: string, suffix: string) {
+  return activeFilterKey === `${itemUniqueId}:${suffix}`;
+}
+
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface PlaylistMusicItemProps {
   music: Music;
+  itemUniqueId: string;
   isCurrentlyPlaying: boolean;
   isBackgroundPlaying: boolean;
   isScheduledUpcoming: boolean;
@@ -60,21 +111,23 @@ interface PlaylistMusicItemProps {
   startLabel?: string;
   currentTime: number;
   duration: number;
-  backgroundPosition: number; // posição em ms
+  backgroundPosition: number;
   onPlay: () => void;
   onSeek: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  /** Quando true, o ícone à direita é a lixeira em vez do skip. */
   showTrashSkipIcon?: boolean;
-  /** Clique na mídia (área do item, exceto play/slider/ícone skip) alterna a lixeira neste item. */
   onPlaylistItemSelect?: () => void;
-  /** Com lixeira visível: remove o item da playlist em memória (não grava arquivo). */
   onTrashRemove?: () => void;
+  filterVisibility: PlaylistFilterVisibility;
+  libraryYearDecade: boolean;
+  showMusicFileName: boolean;
+  showMediaFileName: boolean;
+  activeFilterKey: string | null;
+  onPlaylistFilterClick?: (payload: PlaylistFilterClickPayload) => void;
 }
-
-// ─── Componente ───────────────────────────────────────────────────────────────
 
 export function PlaylistMusicItem({
   music,
+  itemUniqueId,
   isCurrentlyPlaying,
   isBackgroundPlaying,
   isScheduledUpcoming,
@@ -89,11 +142,20 @@ export function PlaylistMusicItem({
   showTrashSkipIcon = false,
   onPlaylistItemSelect,
   onTrashRemove,
+  filterVisibility,
+  libraryYearDecade,
+  showMusicFileName,
+  showMediaFileName,
+  activeFilterKey,
+  onPlaylistFilterClick,
 }: PlaylistMusicItemProps) {
+  const { musicLibrary, musicFilters, mediaLibrary, mediaFilters } = useSyncplayLibraryMaps();
+
   const rawTitle = music.text || `Mídia: ${music.type}`;
   const { artist, track } = splitArtistTitle(rawTitle);
 
-  /** Lixeira só em itens que não são a linha atualmente tocando (principal). */
+  const isMusicKind = (music.type ?? 'music') === 'music';
+
   const trashHighlighted =
     Boolean(showTrashSkipIcon && !isCurrentlyPlaying && !isDisabled);
 
@@ -101,8 +163,9 @@ export function PlaylistMusicItem({
   const itemBorderColor = TYPE_BORDER[music.type ?? ''];
 
   const itemClass = [
-    'playlist-music-item flex flex-col rounded-md transition-all duration-200 border mx-2 px-3 py-2',
+    'playlist-music-item flex flex-col rounded-md transition-all duration-75 border mx-2 px-3 py-2',
     trashHighlighted ? 'playlist-music-item--trash-selected' : '',
+    isDisabled ? 'playlist-music-item--disabled-extra' : '',
     isDisabled
       ? 'bg-black/30 border-[#353535]/55 border-dashed opacity-45 grayscale saturate-0'
       : isCurrentlyPlaying
@@ -117,10 +180,10 @@ export function PlaylistMusicItem({
   const itemStyle: React.CSSProperties = {
     ...(itemBg && !isDisabled ? { background: itemBg } : {}),
     ...(itemBorderColor &&
-    !isDisabled &&
-    !isCurrentlyPlaying &&
-    !isBackgroundPlaying &&
-    !trashHighlighted
+      !isDisabled &&
+      !isCurrentlyPlaying &&
+      !isBackgroundPlaying &&
+      !trashHighlighted
       ? { borderColor: itemBorderColor }
       : {}),
   };
@@ -138,7 +201,6 @@ export function PlaylistMusicItem({
   const prog = displayDuration ? (itemCurrentTime / displayDuration) * 100 : 0;
   let mixEndPct: number | null = null;
   if (music.extra?.mix?.mix_end && displayDuration) {
-    // Subtrai 1 s para alinhar com o ponto real de disparo do engine (trigger_at = mix_end - 1 s).
     const mixTriggerSec = Math.max(0, music.extra.mix.mix_end / 1000 - 1);
     mixEndPct = (mixTriggerSec / displayDuration) * 100;
   }
@@ -156,14 +218,79 @@ export function PlaylistMusicItem({
   const mixSec = getMixDurationSec(music, displayDuration);
   const mixLabel = mixSec !== null ? formatMixLabel(mixSec) : null;
 
+  const fileLabel =
+    music.path != null && music.path !== ''
+      ? fileBaseKey(music.path.split(/[\\/]/).pop() ?? music.path)
+      : null;
+
+  const collectionLabels =
+    isMusicKind && music.path
+      ? getMusicLibraryCollectionLabels(musicLibrary, musicFilters, music.path.split(/[\\/]/).pop() ?? '')
+      : [];
+
+  const mediaAcervo =
+    !isMusicKind && music.path ? getMediaAcervoLabels(mediaLibrary, mediaFilters, music.path) : null;
+
+  const catLabel = resolveFilterLabel(musicFilters, ['categories', 'category'], music.extra?.category);
+  const styleLabel = resolveFilterLabel(musicFilters, ['styles', 'style', 'estilos'], music.extra?.style);
+  const rhythmLabel = resolveFilterLabel(musicFilters, ['rhythms', 'rhythm', 'ritmos'], music.extra?.rhythm);
+  const natLabel = resolveFilterLabel(musicFilters, ['nationalities', 'nationality', 'paises'], music.extra?.nationality);
+  const yearRaw = music.extra?.released;
+  const yearNum = parseYear(yearRaw);
+  const yearLabel = yearRaw != null && String(yearRaw).trim() !== '' ? String(yearRaw) : null;
+
+  const extraPlain =
+    music.extraInfoHTML != null && String(music.extraInfoHTML).trim() !== ''
+      ? stripHtmlToText(String(music.extraInfoHTML))
+      : null;
+
   function handlePlaylistItemSurfaceClick(e: React.MouseEvent) {
     if (!onPlaylistItemSelect || isCurrentlyPlaying || isDisabled) return;
     const el = e.target as HTMLElement;
     if (el.closest('button')) return;
     if (el.closest('input')) return;
     if (el.closest('[data-skip-trash-zone]')) return;
+    if (el.closest('[data-filter-chip]')) return;
     onPlaylistItemSelect();
   }
+
+  function emitFilter(payload: PlaylistFilterClickPayload) {
+    onPlaylistFilterClick?.(payload);
+  }
+
+  const chipClass = (active: boolean) =>
+    [
+      'cursor-pointer underline rounded px-1 py-0.5 text-[11px] leading-tight transition-colors',
+      active ? 'filter-active' : 'text-white',
+    ].join(' ');
+
+  const showFn =
+    isMusicKind ? showMusicFileName : showMediaFileName;
+
+  const hasMusicChips =
+    isMusicKind &&
+    ((filterVisibility.playlistShowMusicFilterCategory && catLabel) ||
+      (filterVisibility.playlistShowMusicFilterStyle && styleLabel) ||
+      (filterVisibility.playlistShowMusicFilterRhythm && rhythmLabel) ||
+      (filterVisibility.playlistShowMusicFilterYear && yearLabel) ||
+      (filterVisibility.playlistShowMusicFilterNationality && natLabel) ||
+      music.extra?.favorite ||
+      music.extra?.fixed ||
+      music.extra?.fitting != null);
+
+  const hasCollections =
+    isMusicKind &&
+    filterVisibility.playlistShowMusicFilterCollection &&
+    collectionLabels.length > 0;
+
+  const hasMediaChips =
+    !isMusicKind &&
+    ((filterVisibility.playlistShowMediaFilterMediaType && mediaAcervo?.mediaType) ||
+      (filterVisibility.playlistShowMediaFilterTag && mediaAcervo?.tagBumper) ||
+      (filterVisibility.playlistShowMediaFilterCollection && mediaAcervo?.collections?.length));
+
+  const showExtraBlock =
+    !isDisabled && (hasMusicChips || hasCollections || (showFn && fileLabel) || extraPlain || hasMediaChips);
 
   return (
     <div
@@ -176,9 +303,7 @@ export function PlaylistMusicItem({
           : undefined
       }
     >
-      {/* Linha 1: cover+play | artista/música | tempos */}
       <div className="flex flex-row gap-3 items-center w-full min-w-0">
-        {/* Cover com botão de play sobreposto */}
         <div className="relative w-[100px] h-[100px] shrink-0 rounded-xl overflow-hidden bg-white/5">
           {music.cover ? (
             <img
@@ -192,7 +317,7 @@ export function PlaylistMusicItem({
           {music.path ? (
             <button
               className={[
-                'absolute inset-0 w-full h-full flex items-center justify-center text-white p-0 text-[1rem] transition-all duration-200',
+                'absolute inset-0 w-full h-full flex items-center justify-center text-white p-0 text-[1rem] transition-all duration-75',
                 isDisabled
                   ? 'text-slate-500 cursor-not-allowed bg-black/30'
                   : isCurrentlyPlaying && isPlaying
@@ -200,6 +325,7 @@ export function PlaylistMusicItem({
                     : 'bg-black/30 hover:bg-[#353535]/90 hover:shadow-[0_0_10px_rgba(0,0,0,0.35)]',
               ].join(' ')}
               onClick={onPlay}
+              onPointerDown={(ev) => ev.stopPropagation()}
               disabled={isDisabled}
               title={
                 isDisabled ? 'Mídia descartada/desabilitada' : isCurrentlyPlaying && isPlaying ? 'Pausar' : 'Tocar'
@@ -212,23 +338,38 @@ export function PlaylistMusicItem({
           ) : null}
         </div>
 
-        {/* Título / artista + barra de progresso */}
         <div className="flex flex-col w-full min-w-0 gap-1 flex-1 justify-between">
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1 min-w-0">
             {artist ? (
               <>
-                <span className="text-xs font-bold text-white leading-snug truncate underline cursor-pointer" title={artist}>
-                  {artist}
-                </span>
-                <span className="text-xs font-bold text-white leading-snug truncate" title={track}>
-                  {track}
-                </span>
+                <div className="flex flex-row items-center gap-1">
+                  <ArtistIcon />
+                  <span
+                    data-filter-chip
+                    className={`filterArtist text-xs font-bold text-white leading-snug truncate underline cursor-pointer hover:text-sky-200 ${chipActive(activeFilterKey, itemUniqueId, 'artist') ? 'filter-active rounded px-1' : ''}`}
+                    title={artist}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      emitFilter({ kind: 'artist', artist, itemUniqueId });
+                    }}
+                  >
+                    {artist}
+                  </span>
+                  <VarinhaMagicaIcon />
+                </div>
+                <div className="flex flex-row items-center gap-1">
+                  <ReloadMusicIcon />
+                  <span className="text-xs font-bold text-white leading-snug truncate" title={track}>
+                    {track}
+                  </span>
+                </div>
               </>
             ) : (
               <span className="text-[0.875rem] font-medium text-white/90 truncate" title={rawTitle}>
                 {track}
               </span>
             )}
+
             <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
               {isDisabled && (
                 <span className="text-[0.58rem] uppercase tracking-widest font-bold bg-slate-700/60 px-2 py-0.5 rounded-full text-slate-300 whitespace-nowrap">
@@ -236,9 +377,215 @@ export function PlaylistMusicItem({
                 </span>
               )}
             </div>
+
+            {/* Legado: #extraInformationContainer — id único por item (HTML válido) */}
+            {showExtraBlock ? (
+              <div
+                id={`extra-information-${itemUniqueId}`}
+                className="playlist-extra-information mt-1 flex flex-col gap-1 min-w-0"
+                data-extra-information-container
+              >
+                {hasMusicChips ? (
+                  <div className="filter-container flex flex-row items-start gap-1 min-w-0">
+                    <span className="filter-container-icon text-[0.65rem] opacity-70 shrink-0 pt-0.5" aria-hidden>
+                      <FiltersIcon />
+                    </span>
+                    <span className="flex flex-wrap gap-x-1 gap-y-0.5 min-w-0">
+                      {music.extra?.favorite ? (
+                        <span className="text-amber-300 text-[0.65rem]" title="Favorito">
+                          ★
+                        </span>
+                      ) : null}
+                      {music.extra?.fixed ? (
+                        <span className="text-slate-300 text-[0.65rem]" title="Fixo">
+                          📌
+                        </span>
+                      ) : null}
+                      {music.extra?.fitting != null && music.extra?.fitting !== false ? (
+                        <span className="text-emerald-300/90 text-[0.65rem]" title="Fitting">
+                          ⧉
+                        </span>
+                      ) : null}
+                      {filterVisibility.playlistShowMusicFilterCategory && catLabel ? (
+                        <span
+                          data-filter-chip
+                          className={`filterCategory ${chipClass(chipActive(activeFilterKey, itemUniqueId, 'category'))}`}
+                          title={libraryYearDecade ? 'Filtrar por categoria (acervo)' : 'Filtrar por categoria'}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            emitFilter({
+                              kind: 'musicMeta',
+                              field: 'category',
+                              displayText: catLabel,
+                              raw: music.extra?.category,
+                              itemUniqueId,
+                            });
+                          }}
+                        >
+                          {catLabel}
+                        </span>
+                      ) : null}
+                      {filterVisibility.playlistShowMusicFilterStyle && styleLabel ? (
+                        <span
+                          data-filter-chip
+                          className={`filterStyle ${chipClass(chipActive(activeFilterKey, itemUniqueId, 'style'))}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            emitFilter({
+                              kind: 'musicMeta',
+                              field: 'style',
+                              displayText: styleLabel,
+                              raw: music.extra?.style,
+                              itemUniqueId,
+                            });
+                          }}
+                        >
+                          {styleLabel}
+                        </span>
+                      ) : null}
+                      {filterVisibility.playlistShowMusicFilterRhythm && rhythmLabel ? (
+                        <span
+                          data-filter-chip
+                          className={`filterRhythm ${chipClass(chipActive(activeFilterKey, itemUniqueId, 'rhythm'))}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            emitFilter({
+                              kind: 'musicMeta',
+                              field: 'rhythm',
+                              displayText: rhythmLabel,
+                              raw: music.extra?.rhythm,
+                              itemUniqueId,
+                            });
+                          }}
+                        >
+                          {rhythmLabel}
+                        </span>
+                      ) : null}
+                      {filterVisibility.playlistShowMusicFilterNationality && natLabel ? (
+                        <span
+                          data-filter-chip
+                          className={`filterNationality ${chipClass(chipActive(activeFilterKey, itemUniqueId, 'nationality'))}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            emitFilter({
+                              kind: 'musicMeta',
+                              field: 'nationality',
+                              displayText: natLabel,
+                              raw: music.extra?.nationality,
+                              itemUniqueId,
+                            });
+                          }}
+                        >
+                          {natLabel}
+                        </span>
+                      ) : null}
+                      {filterVisibility.playlistShowMusicFilterYear && yearLabel ? (
+                        <span
+                          data-filter-chip
+                          className={`filterYear ${chipClass(chipActive(activeFilterKey, itemUniqueId, 'year'))}`}
+                          title={libraryYearDecade ? 'Filtrar por década' : 'Filtrar por ano'}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (yearNum != null) {
+                              emitFilter({ kind: 'year', year: yearNum, itemUniqueId });
+                            }
+                          }}
+                        >
+                          {yearLabel}
+                        </span>
+                      ) : null}
+                    </span>
+                  </div>
+                ) : null}
+
+                {hasCollections ? (
+                  <div className="filter-container flex flex-row items-start gap-1 flex-wrap">
+                    <span className="filter-container-icon text-[0.65rem] opacity-70 shrink-0 pt-0.5" aria-hidden>
+                      <CollectionIcon />
+                    </span>
+                    <span className="flex flex-wrap gap-x-1 gap-y-0.5">
+                      {collectionLabels.map((label) => (
+                        <span
+                          key={label}
+                          data-filter-chip
+                          className={`filterCollection ${chipClass(chipActive(activeFilterKey, itemUniqueId, `coll:${label}`))}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            emitFilter({ kind: 'collection', label, itemUniqueId });
+                          }}
+                        >
+                          {label}
+                        </span>
+                      ))}
+                    </span>
+                  </div>
+                ) : null}
+
+                {hasMediaChips ? (
+                  <div className="filter-container flex flex-row items-start gap-1 min-w-0">
+                    <span className="filter-container-icon text-[0.65rem] opacity-70 shrink-0 pt-0.5" aria-hidden>
+                      ▣
+                    </span>
+                    <span className="flex flex-wrap gap-x-1 gap-y-0.5 min-w-0">
+                      {filterVisibility.playlistShowMediaFilterMediaType && mediaAcervo?.mediaType ? (
+                        <span
+                          data-filter-chip
+                          className={`filterDirectory ${chipClass(chipActive(activeFilterKey, itemUniqueId, 'mediaBrowse'))}`}
+                          data-type={mediaAcervo.mediaType}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            emitFilter({ kind: 'mediaBrowse', label: mediaAcervo.mediaType!, itemUniqueId });
+                          }}
+                        >
+                          {mediaAcervo.mediaType}
+                        </span>
+                      ) : null}
+                      {filterVisibility.playlistShowMediaFilterTag && mediaAcervo?.tagBumper ? (
+                        <span
+                          data-filter-chip
+                          className={`filterTagBumper ${chipClass(chipActive(activeFilterKey, itemUniqueId, 'mediaBrowse'))}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            emitFilter({ kind: 'mediaBrowse', label: mediaAcervo.tagBumper!, itemUniqueId });
+                          }}
+                        >
+                          {mediaAcervo.tagBumper}
+                        </span>
+                      ) : null}
+                      {(mediaAcervo?.collections ?? []).map((c) =>
+                        filterVisibility.playlistShowMediaFilterCollection ? (
+                          <span
+                            key={c}
+                            data-filter-chip
+                            className={`filterCollection ${chipClass(chipActive(activeFilterKey, itemUniqueId, 'mediaBrowse'))}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              emitFilter({ kind: 'mediaBrowse', label: c, itemUniqueId });
+                            }}
+                          >
+                            {c}
+                          </span>
+                        ) : null
+                      )}
+                    </span>
+                  </div>
+                ) : null}
+
+                {showFn && fileLabel ? (
+                  <div className="playlist-extra-filename text-[10px] text-white truncate" title={music.path}>
+                    {fileLabel}
+                  </div>
+                ) : null}
+
+                {extraPlain ? (
+                  <div className="playlist-extra-info-plain text-[0.58rem] text-slate-400 whitespace-pre-wrap wrap-break-word">
+                    {extraPlain}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
 
-          {/* Barra de progresso no rodapé deste container */}
           <input
             type="range"
             className="progress-bar playlist-music-progress-bar w-full min-w-0 min-h-[12px] bg-zinc-900!"
@@ -247,12 +594,12 @@ export function PlaylistMusicItem({
             step="0.001"
             value={itemCurrentTime}
             onChange={onSeek}
+            onPointerDown={(ev) => ev.stopPropagation()}
             disabled={isDisabled || !isCurrentlyPlaying}
             style={{ background: barBg }}
           />
         </div>
 
-        {/* Tempos + skip/lixeira */}
         <div className="shrink-0 flex flex-col items-center justify-center gap-1 min-w-0 w-[20%]">
           <span className="text-md text-white font-black">
             {formatTimeRemaining(remainingSec)}
@@ -261,6 +608,7 @@ export function PlaylistMusicItem({
             src={trashHighlighted ? lixeiraImg : proximaBcoImg}
             alt=""
             data-skip-trash-zone
+            onPointerDown={(ev) => ev.stopPropagation()}
             onClick={(ev) => {
               ev.stopPropagation();
               if (trashHighlighted && onTrashRemove) {
@@ -281,7 +629,6 @@ export function PlaylistMusicItem({
           </div>
         </div>
       </div>
-
     </div>
   );
 }
