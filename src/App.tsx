@@ -28,7 +28,7 @@ import { PlaylistCurrentBlock } from './components/playlist/PlaylistCurrentBlock
 import { PlaylistLoadMoreControls } from './components/playlist/PlaylistLoadMoreControls';
 import { PlaylistPlaybackBar } from './components/playlist/PlaylistPlaybackBar';
 import { SettingsDock } from './components/settings/SettingsDock';
-import { getAppSetting } from './settings/settingsStorage';
+import { SECONDS_PER_DAY, usePlaylistData } from './hooks/usePlaylistData';
 import { formatSecondsOfDay } from './time';
 
 async function fetchConfigSafe<T>(filename: string): Promise<T | null> {
@@ -45,40 +45,6 @@ function formatTime(seconds: number) {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${m}:${s < 10 ? "0" : ""}${s}`;
-}
-
-interface PlaylistBlockWindow {
-  before: number;
-  after: number;
-}
-
-const DEFAULT_PLAYLIST_BLOCK_WINDOW: PlaylistBlockWindow = { before: 2, after: 2 };
-
-function formatPlaylistDate(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function todayPlaylistDate() {
-  return formatPlaylistDate(new Date());
-}
-
-function addDaysToPlaylistDate(dateString: string, days: number) {
-  const [year, month, day] = dateString.split('-').map(Number);
-  return formatPlaylistDate(new Date(year, month - 1, day + days));
-}
-
-function parsePositiveIntSetting(value: unknown, fallback: number): number {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return Math.max(0, Math.floor(value));
-  }
-  if (typeof value === 'string') {
-    const n = parseInt(value.trim(), 10);
-    if (!Number.isNaN(n)) return Math.max(0, n);
-  }
-  return fallback;
 }
 
 /**
@@ -324,73 +290,6 @@ function getBlockDisplayStart(blockStart: number | undefined, musicEntries: Arra
   )?.[1].start;
 }
 
-interface VisiblePlaylistGroup {
-  plKey: string;
-  pl: SyncPlayData['playlists'][string];
-  blocks: Array<[string, SyncPlayData['playlists'][string]['blocks'][string]]>;
-}
-
-/** Expansão manual da cauda da playlist (após o recorte por configuração). */
-interface PlaylistTailExpansion {
-  extraAfterBlocks: number;
-  /** Mostrar todos os blocos restantes até o fim da grade do dia */
-  showAllUntilEnd: boolean;
-}
-
-interface VisiblePlaylistSlice {
-  groups: VisiblePlaylistGroup[];
-  /** Ainda há blocos depois da última fatia exibida */
-  hasMoreTail: boolean;
-}
-
-function buildVisiblePlaylistSlice(
-  data: SyncPlayData,
-  anchorMusicId: string | null,
-  windowSize: PlaylistBlockWindow,
-  tailExpansion: PlaylistTailExpansion
-): VisiblePlaylistSlice {
-  const orderedBlocks = orderedPlaylistEntries(data).flatMap(([plKey, pl]) =>
-    orderedBlockEntries(pl.blocks).map(([blockKey, block]) => ({
-      plKey,
-      pl,
-      blockKey,
-      block,
-    }))
-  );
-
-  if (orderedBlocks.length === 0) return { groups: [], hasMoreTail: false };
-
-  const anchorIndex = anchorMusicId
-    ? orderedBlocks.findIndex(({ plKey, blockKey }) => anchorMusicId.startsWith(`${plKey}-${blockKey}-`))
-    : -1;
-  const baseIndex = anchorIndex >= 0 ? anchorIndex : 0;
-  const firstVisibleIndex = Math.max(0, baseIndex - windowSize.before);
-  const defaultLastExclusive = Math.min(
-    orderedBlocks.length,
-    baseIndex + windowSize.after + 1
-  );
-  const lastVisibleIndex = tailExpansion.showAllUntilEnd
-    ? orderedBlocks.length
-    : Math.min(
-      orderedBlocks.length,
-      defaultLastExclusive + tailExpansion.extraAfterBlocks
-    );
-
-  const hasMoreTail = lastVisibleIndex < orderedBlocks.length;
-  const visibleGroups: VisiblePlaylistGroup[] = [];
-
-  for (const { plKey, pl, blockKey, block } of orderedBlocks.slice(firstVisibleIndex, lastVisibleIndex)) {
-    const currentGroup = visibleGroups[visibleGroups.length - 1];
-    if (currentGroup?.plKey === plKey) {
-      currentGroup.blocks.push([blockKey, block]);
-    } else {
-      visibleGroups.push({ plKey, pl, blocks: [[blockKey, block]] });
-    }
-  }
-
-  return { groups: visibleGroups, hasMoreTail };
-}
-
 // --- DroppableSlot ---
 // Linha fina entre os itens da playlist — torna-se o target do drop.
 
@@ -469,12 +368,6 @@ function DraggableMidiaItem({
 // --- App ---
 
 function App() {
-  const [data, setData] = useState<SyncPlayData | null>(null);
-  const [mixConfig, setMixConfig] = useState<MixConfig | null>(null);
-  const [playlistDate, setPlaylistDate] = useState(() => todayPlaylistDate());
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
-
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [backgroundIds, setBackgroundIds] = useState<string[]>([]);
   const [backgroundPositions, setBackgroundPositions] = useState<Record<string, number>>({});
@@ -484,6 +377,20 @@ function App() {
   const [scheduledMusicId, setScheduledMusicId] = useState<string | null>(null);
   const [trashHighlightPlaylistId, setTrashHighlightPlaylistId] = useState<string | null>(null);
   const [scheduleStarts, setScheduleStarts] = useState<Record<string, ScheduleMediaStartDto>>({});
+
+  const {
+    data,
+    setData,
+    mixConfig,
+    error,
+    loading,
+    visiblePlaylistGroups,
+    playlistHasMoreTail,
+    playlistAppendingDay,
+    playlistAppendError,
+    loadNextPlaylistBlock,
+    loadAllPlaylistBlocksUntilEnd,
+  } = usePlaylistData({ anchorMusicId: playingId ?? scheduledMusicId });
 
   useEffect(() => {
     if (playingId == null) return;
@@ -524,61 +431,12 @@ function App() {
 
   const parentRef = useRef<HTMLDivElement>(null);
 
-  const [playlistBlockWindow, setPlaylistBlockWindow] = useState<PlaylistBlockWindow>(
-    DEFAULT_PLAYLIST_BLOCK_WINDOW
-  );
-  const [playlistExtraAfterBlocks, setPlaylistExtraAfterBlocks] = useState(0);
-  const [playlistShowAllTail, setPlaylistShowAllTail] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const [loadRaw, keepRaw] = await Promise.all([
-          getAppSetting('loadBlocks'),
-          getAppSetting('keepBlocks'),
-        ]);
-        if (cancelled) return;
-        setPlaylistBlockWindow({
-          before: parsePositiveIntSetting(loadRaw, DEFAULT_PLAYLIST_BLOCK_WINDOW.before),
-          after: parsePositiveIntSetting(keepRaw, DEFAULT_PLAYLIST_BLOCK_WINDOW.after),
-        });
-      } catch {
-        /* mantém DEFAULT_PLAYLIST_BLOCK_WINDOW */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   const rowVirtualizer = useVirtualizer({
     count: filteredFiles.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 36,
     overscan: 10,
   });
-
-  const playlistTailExpansion = useMemo<PlaylistTailExpansion>(
-    () => ({
-      extraAfterBlocks: playlistExtraAfterBlocks,
-      showAllUntilEnd: playlistShowAllTail,
-    }),
-    [playlistExtraAfterBlocks, playlistShowAllTail]
-  );
-
-  const { groups: visiblePlaylistGroups, hasMoreTail: playlistHasMoreTail } = useMemo(
-    () =>
-      data
-        ? buildVisiblePlaylistSlice(
-          data,
-          playingId ?? scheduledMusicId,
-          playlistBlockWindow,
-          playlistTailExpansion
-        )
-        : { groups: [] as VisiblePlaylistGroup[], hasMoreTail: false },
-    [data, playingId, scheduledMusicId, playlistBlockWindow, playlistTailExpansion]
-  );
 
   const playlistCurrentBlockLine = useMemo(() => {
     const anchor = playingId ?? scheduledMusicId;
@@ -603,51 +461,6 @@ function App() {
     () => musicForPlaylistItemId(data, playingId),
     [data, playingId]
   );
-
-  const fetchPlaylist = useCallback(async (date: string, showAllTail = false) => {
-    setLoading(true);
-    setError("");
-    try {
-      const [jsonStr, cfg] = await Promise.all([
-        invoke<string>("read_playlist", { date }),
-        fetchConfigSafe<MixConfig>('Configs/mix.json'),
-      ]);
-      setMixConfig(cfg);
-      setPlaylistDate(date);
-      setPlaylistExtraAfterBlocks(0);
-      setPlaylistShowAllTail(showAllTail);
-      setData(JSON.parse(jsonStr));
-    } catch (err) {
-      setPlaylistExtraAfterBlocks(0);
-      setPlaylistShowAllTail(false);
-      setError(`Erro ao carregar a playlist: ${err}`);
-      setData(null);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const loadNextPlaylistDay = useCallback((showAllTail = false) => {
-    void fetchPlaylist(addDaysToPlaylistDate(playlistDate, 1), showAllTail);
-  }, [fetchPlaylist, playlistDate]);
-
-  const loadNextPlaylistBlock = useCallback(() => {
-    if (playlistHasMoreTail) {
-      setPlaylistExtraAfterBlocks((n) => n + 1);
-      return;
-    }
-
-    loadNextPlaylistDay(false);
-  }, [loadNextPlaylistDay, playlistHasMoreTail]);
-
-  const loadAllPlaylistBlocksUntilEnd = useCallback(() => {
-    if (playlistHasMoreTail) {
-      setPlaylistShowAllTail(true);
-      return;
-    }
-
-    loadNextPlaylistDay(true);
-  }, [loadNextPlaylistDay, playlistHasMoreTail]);
 
   const loadDirectories = useCallback(async (paths: string[]) => {
     setDirLoading(true);
@@ -835,7 +648,11 @@ function App() {
         else await invoke("resume_audio");
       } else {
         const idx = playableItemsRef.current.findIndex(i => i.id === uniqueId);
-        if (idx !== -1) await invoke("play_index", { index: idx });
+        if (idx !== -1) {
+          await invoke("play_index", { index: idx });
+          setPlayingId(uniqueId);
+          setIsPlaying(true);
+        }
       }
     } catch (e) { console.error(e); }
   };
@@ -881,8 +698,6 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => { void fetchPlaylist(todayPlaylistDate()); }, [fetchPlaylist]);
-
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const isTyping = e.target instanceof HTMLElement && e.target.tagName === "INPUT";
@@ -909,6 +724,9 @@ function App() {
     if (!data) return;
 
     const { playableItems, scheduledBlocks } = buildPlaylistRuntimeItems(data, mixConfig);
+    const currentDayScheduledBlocks = scheduledBlocks.filter(
+      (block) => block.startSec >= 0 && block.startSec < SECONDS_PER_DAY
+    );
     let cancelled = false;
 
     const clearScheduleTimer = () => {
@@ -922,7 +740,7 @@ function App() {
       clearScheduleTimer();
 
       try {
-        if (scheduledBlocks.length === 0) {
+        if (currentDayScheduledBlocks.length === 0) {
           playableItemsRef.current = playableItems;
           await invoke("set_queue", { items: playableItems });
           if (!cancelled) {
@@ -934,7 +752,7 @@ function App() {
         }
 
         const selection = await invoke<ScheduleSelectionDto>("get_schedule_selection", {
-          blocks: scheduledBlocks,
+          blocks: currentDayScheduledBlocks,
         });
         if (cancelled) return;
 
@@ -1183,9 +1001,15 @@ function App() {
                     ))}
                     <PlaylistLoadMoreControls
                       hasMoreTail={playlistHasMoreTail}
+                      isLoading={playlistAppendingDay}
                       onLoadNext={loadNextPlaylistBlock}
                       onLoadAll={loadAllPlaylistBlocksUntilEnd}
                     />
+                    {playlistAppendError && (
+                      <div className="px-3 pb-3 text-[0.78rem] text-red-300">
+                        {playlistAppendError}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
