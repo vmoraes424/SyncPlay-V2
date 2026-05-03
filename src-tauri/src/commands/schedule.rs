@@ -1,7 +1,8 @@
-use crate::core::schedule::select_music_from_blocks;
+use crate::core::schedule::recalculate_schedule_from_blocks;
 use crate::error::AppResult;
 use crate::models::schedule::{
-    BlockScheduleSelection, ScheduleMediaStart, ScheduledBlock, ScheduledMedia, SecondsOfDay,
+    BlockScheduleSelection, RecalculatedBlockSchedule, ScheduleMediaDiscard, ScheduleMediaStart,
+    ScheduledBlock, ScheduledMedia, SecondsOfDay,
 };
 use chrono::{Local, Timelike};
 use serde::{Deserialize, Serialize};
@@ -89,6 +90,22 @@ impl From<ScheduleMediaStart> for ScheduleMediaStartDto {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScheduleMediaDiscardDto {
+    id: String,
+    discarded: bool,
+}
+
+impl From<ScheduleMediaDiscard> for ScheduleMediaDiscardDto {
+    fn from(item: ScheduleMediaDiscard) -> Self {
+        Self {
+            id: item.id,
+            discarded: item.discarded,
+        }
+    }
+}
+
+#[derive(Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ScheduleSelectionDto {
     #[serde(rename_all = "camelCase")]
@@ -97,6 +114,7 @@ pub enum ScheduleSelectionDto {
         elapsed_sec: f64,
         active_queue_ids: Vec<String>,
         media_starts: Vec<ScheduleMediaStartDto>,
+        media_discards: Vec<ScheduleMediaDiscardDto>,
     },
     #[serde(rename_all = "camelCase")]
     Upcoming {
@@ -104,17 +122,25 @@ pub enum ScheduleSelectionDto {
         starts_in_sec: f64,
         active_queue_ids: Vec<String>,
         media_starts: Vec<ScheduleMediaStartDto>,
+        media_discards: Vec<ScheduleMediaDiscardDto>,
     },
     #[serde(rename_all = "camelCase")]
     Empty {
         active_queue_ids: Vec<String>,
         media_starts: Vec<ScheduleMediaStartDto>,
+        media_discards: Vec<ScheduleMediaDiscardDto>,
     },
 }
 
-impl From<BlockScheduleSelection> for ScheduleSelectionDto {
-    fn from(selection: BlockScheduleSelection) -> Self {
-        match selection {
+impl From<RecalculatedBlockSchedule> for ScheduleSelectionDto {
+    fn from(schedule: RecalculatedBlockSchedule) -> Self {
+        let media_discards = schedule
+            .media_discards
+            .into_iter()
+            .map(Into::into)
+            .collect();
+
+        match schedule.selection {
             BlockScheduleSelection::Active {
                 music_id,
                 elapsed_sec,
@@ -125,6 +151,7 @@ impl From<BlockScheduleSelection> for ScheduleSelectionDto {
                 elapsed_sec,
                 active_queue_ids,
                 media_starts: media_starts.into_iter().map(Into::into).collect(),
+                media_discards,
             },
             BlockScheduleSelection::Upcoming {
                 music_id,
@@ -136,6 +163,7 @@ impl From<BlockScheduleSelection> for ScheduleSelectionDto {
                 starts_in_sec,
                 active_queue_ids,
                 media_starts: media_starts.into_iter().map(Into::into).collect(),
+                media_discards,
             },
             BlockScheduleSelection::Empty {
                 active_queue_ids,
@@ -143,6 +171,7 @@ impl From<BlockScheduleSelection> for ScheduleSelectionDto {
             } => Self::Empty {
                 active_queue_ids,
                 media_starts: media_starts.into_iter().map(Into::into).collect(),
+                media_discards,
             },
         }
     }
@@ -154,10 +183,19 @@ fn local_seconds_of_day() -> SecondsOfDay {
 }
 
 #[tauri::command]
-pub fn get_schedule_selection(blocks: Vec<ScheduledBlockDto>) -> AppResult<ScheduleSelectionDto> {
+pub fn get_schedule_selection(
+    blocks: Vec<ScheduledBlockDto>,
+    anchor_media_id: Option<String>,
+) -> AppResult<ScheduleSelectionDto> {
     let scheduled_blocks: Vec<ScheduledBlock> = blocks.into_iter().map(Into::into).collect();
     let now_sec = local_seconds_of_day();
-    let selection = select_music_from_blocks(&scheduled_blocks, now_sec, 120.0, "advanced");
+    let selection = recalculate_schedule_from_blocks(
+        &scheduled_blocks,
+        now_sec,
+        120.0,
+        "advanced",
+        anchor_media_id.as_deref(),
+    );
 
     Ok(selection.into())
 }

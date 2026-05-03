@@ -1,6 +1,7 @@
 use crate::models::schedule::{
-    BlockScheduleSelection, ScheduleMediaStart, ScheduleMode, ScheduleSelection, ScheduledBlock,
-    ScheduledMedia, ScheduledMusic, SecondsOfDay, DAY_SECONDS,
+    BlockScheduleSelection, RecalculatedBlockSchedule, ScheduleMediaDiscard, ScheduleMediaStart,
+    ScheduleMode, ScheduleSelection, ScheduledBlock, ScheduledMedia, ScheduledMusic, SecondsOfDay,
+    DAY_SECONDS,
 };
 
 /// Normaliza qualquer valor de segundos para o intervalo [0, 86400).
@@ -186,21 +187,21 @@ fn raw_effective_duration(media: &ScheduledMedia) -> f64 {
     (duration - mix_out).max(0.0)
 }
 
-fn active_block_duration(block: &ScheduledBlock) -> f64 {
-    block.medias.iter().map(effective_duration).sum()
-}
-
 fn is_vem_or_hc(media: &ScheduledMedia) -> bool {
     media.media_type.eq_ignore_ascii_case("vem")
         || media.title.trim_start().starts_with("#hc")
         || media.path.trim_start().starts_with("#hc")
 }
 
-fn discard_previous_vem_or_hc_if_needed(block: &mut ScheduledBlock, music_index: usize) {
+fn discard_previous_vem_or_hc_if_needed(
+    block: &mut ScheduledBlock,
+    music_index: usize,
+    lower_bound: usize,
+) {
     let mut remaining = 2;
     let mut cursor = music_index;
 
-    while cursor > 0 && remaining > 0 {
+    while cursor > lower_bound && remaining > 0 {
         cursor -= 1;
         if is_vem_or_hc(&block.medias[cursor])
             && !block.medias[cursor].disabled
@@ -214,11 +215,15 @@ fn discard_previous_vem_or_hc_if_needed(block: &mut ScheduledBlock, music_index:
     }
 }
 
-fn restore_previous_vem_or_hc_if_needed(block: &mut ScheduledBlock, music_index: usize) {
+fn restore_previous_vem_or_hc_if_needed(
+    block: &mut ScheduledBlock,
+    music_index: usize,
+    lower_bound: usize,
+) {
     let mut remaining = 2;
     let mut cursor = music_index;
 
-    while cursor > 0 && remaining > 0 {
+    while cursor > lower_bound && remaining > 0 {
         cursor -= 1;
         if is_vem_or_hc(&block.medias[cursor])
             && !block.medias[cursor].disabled
@@ -232,24 +237,60 @@ fn restore_previous_vem_or_hc_if_needed(block: &mut ScheduledBlock, music_index:
     }
 }
 
-fn apply_discard(block: &mut ScheduledBlock, music_discard_time_sec: f64, discard_type: &str) {
+fn active_block_duration_from(block: &ScheduledBlock, start_index: usize) -> f64 {
+    block
+        .medias
+        .iter()
+        .skip(start_index)
+        .map(effective_duration)
+        .sum()
+}
+
+fn restore_auto_discards(block: &mut ScheduledBlock) {
+    for media in &mut block.medias {
+        if can_auto_restore(media) {
+            media.discarded = false;
+        }
+    }
+}
+
+pub fn recalculate_block_discards(
+    block: &mut ScheduledBlock,
+    music_discard_time_sec: f64,
+    discard_type: &str,
+    anchor_media_id: Option<&str>,
+    anchor_start_sec: Option<SecondsOfDay>,
+) {
     if block.disable_discard {
         return;
     }
 
+    restore_auto_discards(block);
+
+    let anchor_index =
+        anchor_media_id.and_then(|id| block.medias.iter().position(|media| media.id == id));
+    let start_index = anchor_index.unwrap_or(0);
+    let timeline_start = anchor_index
+        .and(anchor_start_sec)
+        .map(|sec| sec as f64)
+        .unwrap_or(block.start_sec as f64);
     let block_end = block.start_sec as f64 + block.size_sec.max(0.0);
     let discard_limit = block_end + music_discard_time_sec.max(0.0);
-    let mut real_end = block.start_sec as f64 + active_block_duration(block);
+    let mut real_end = timeline_start + active_block_duration_from(block, start_index);
 
-    for index in (0..block.medias.len()).rev() {
+    for index in (start_index..block.medias.len()).rev() {
         if real_end <= discard_limit {
             break;
         }
 
+        if Some(index) == anchor_index {
+            continue;
+        }
+
         if can_auto_discard(&block.medias[index]) {
             block.medias[index].discarded = true;
-            discard_previous_vem_or_hc_if_needed(block, index);
-            real_end = block.start_sec as f64 + active_block_duration(block);
+            discard_previous_vem_or_hc_if_needed(block, index, start_index);
+            real_end = timeline_start + active_block_duration_from(block, start_index);
         }
     }
 
@@ -257,14 +298,18 @@ fn apply_discard(block: &mut ScheduledBlock, music_discard_time_sec: f64, discar
         return;
     }
 
-    for index in 0..block.medias.len() {
+    for index in start_index..block.medias.len() {
+        if Some(index) == anchor_index {
+            continue;
+        }
+
         if can_auto_restore(&block.medias[index]) {
             let projected_end = real_end + raw_effective_duration(&block.medias[index]);
 
             if projected_end < discard_limit {
                 block.medias[index].discarded = false;
-                restore_previous_vem_or_hc_if_needed(block, index);
-                real_end = block.start_sec as f64 + active_block_duration(block);
+                restore_previous_vem_or_hc_if_needed(block, index, start_index);
+                real_end = timeline_start + active_block_duration_from(block, start_index);
             } else if discard_type.eq_ignore_ascii_case("basic") {
                 break;
             }
@@ -283,12 +328,28 @@ struct RuntimeMedia {
     counts_for_schedule: bool,
 }
 
-fn recalculate_block_media_starts(block: &ScheduledBlock) -> Vec<RuntimeMedia> {
+fn recalculate_block_media_starts(
+    block: &ScheduledBlock,
+    anchor_media_id: Option<&str>,
+    anchor_start_sec: Option<SecondsOfDay>,
+) -> Vec<RuntimeMedia> {
+    let anchor_index = anchor_media_id
+        .and_then(|id| block.medias.iter().position(|media| media.id == id))
+        .filter(|_| anchor_start_sec.is_some());
     let mut accumulated = 0.0;
     let mut runtime = Vec::with_capacity(block.medias.len());
 
-    for media in &block.medias {
-        let start_sec = normalize_day_seconds(block.start_sec as f64 + accumulated);
+    for (index, media) in block.medias.iter().enumerate() {
+        if Some(index) == anchor_index {
+            accumulated = 0.0;
+        }
+
+        let base_start = if anchor_index.is_some_and(|anchor| index >= anchor) {
+            anchor_start_sec.unwrap() as f64
+        } else {
+            block.start_sec as f64
+        };
+        let start_sec = normalize_day_seconds(base_start + accumulated);
         let counts = counts_for_schedule(media);
         let effective = effective_duration(media);
 
@@ -310,13 +371,26 @@ fn recalculate_block_media_starts(block: &ScheduledBlock) -> Vec<RuntimeMedia> {
     runtime
 }
 
+#[allow(dead_code)]
 pub fn select_music_from_blocks(
     blocks: &[ScheduledBlock],
     now_sec: SecondsOfDay,
     music_discard_time_sec: f64,
     discard_type: &str,
 ) -> BlockScheduleSelection {
+    recalculate_schedule_from_blocks(blocks, now_sec, music_discard_time_sec, discard_type, None)
+        .selection
+}
+
+pub fn recalculate_schedule_from_blocks(
+    blocks: &[ScheduledBlock],
+    now_sec: SecondsOfDay,
+    music_discard_time_sec: f64,
+    discard_type: &str,
+    anchor_media_id: Option<&str>,
+) -> RecalculatedBlockSchedule {
     let mut runtime_items = Vec::new();
+    let mut media_discards = Vec::new();
 
     for source_block in blocks {
         if source_block.size_sec <= 0.0 || source_block.medias.is_empty() {
@@ -324,8 +398,27 @@ pub fn select_music_from_blocks(
         }
 
         let mut block = source_block.clone();
-        apply_discard(&mut block, music_discard_time_sec, discard_type);
-        runtime_items.extend(recalculate_block_media_starts(&block));
+        let block_has_anchor =
+            anchor_media_id.is_some_and(|id| block.medias.iter().any(|media| media.id == id));
+        let block_anchor_id = block_has_anchor.then_some(anchor_media_id).flatten();
+        let block_anchor_start = block_has_anchor.then_some(now_sec);
+
+        recalculate_block_discards(
+            &mut block,
+            music_discard_time_sec,
+            discard_type,
+            block_anchor_id,
+            block_anchor_start,
+        );
+        media_discards.extend(block.medias.iter().map(|media| ScheduleMediaDiscard {
+            id: media.id.clone(),
+            discarded: media.discarded,
+        }));
+        runtime_items.extend(recalculate_block_media_starts(
+            &block,
+            block_anchor_id,
+            block_anchor_start,
+        ));
     }
 
     runtime_items.sort_by_key(|item| item.start_sec);
@@ -364,11 +457,14 @@ pub fn select_music_from_blocks(
                 .unwrap_or(item.effective_duration_sec)
                 .min(item.effective_duration_sec);
 
-            return BlockScheduleSelection::Active {
-                music_id: item.id.clone(),
-                elapsed_sec: raw_elapsed.min(max_elapsed),
-                active_queue_ids,
-                media_starts,
+            return RecalculatedBlockSchedule {
+                selection: BlockScheduleSelection::Active {
+                    music_id: item.id.clone(),
+                    elapsed_sec: raw_elapsed.min(max_elapsed),
+                    active_queue_ids,
+                    media_starts,
+                },
+                media_discards,
             };
         }
     }
@@ -380,15 +476,21 @@ pub fn select_music_from_blocks(
         .min_by_key(|item| seconds_until(now_sec, item.start_sec));
 
     match next {
-        Some(item) => BlockScheduleSelection::Upcoming {
-            music_id: item.id.clone(),
-            starts_in_sec: seconds_until(now_sec, item.start_sec) as f64,
-            active_queue_ids,
-            media_starts,
+        Some(item) => RecalculatedBlockSchedule {
+            selection: BlockScheduleSelection::Upcoming {
+                music_id: item.id.clone(),
+                starts_in_sec: seconds_until(now_sec, item.start_sec) as f64,
+                active_queue_ids,
+                media_starts,
+            },
+            media_discards,
         },
-        None => BlockScheduleSelection::Empty {
-            active_queue_ids,
-            media_starts,
+        None => RecalculatedBlockSchedule {
+            selection: BlockScheduleSelection::Empty {
+                active_queue_ids,
+                media_starts,
+            },
+            media_discards,
         },
     }
 }
@@ -775,6 +877,126 @@ mod tests {
                     },
                 ],
             }
+        );
+    }
+
+    #[test]
+    fn recalculated_schedule_returns_final_discard_flags() {
+        let blocks = vec![block(
+            1_000,
+            300.0,
+            vec![
+                block_media("a", 100.0),
+                block_media("b", 100.0),
+                block_media("discarded-tail", 200.0),
+            ],
+        )];
+
+        let schedule = recalculate_schedule_from_blocks(&blocks, 1_150, 0.0, "advanced", None);
+
+        assert_eq!(
+            schedule.media_discards,
+            vec![
+                ScheduleMediaDiscard {
+                    id: "a".to_string(),
+                    discarded: false,
+                },
+                ScheduleMediaDiscard {
+                    id: "b".to_string(),
+                    discarded: false,
+                },
+                ScheduleMediaDiscard {
+                    id: "discarded-tail".to_string(),
+                    discarded: true,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn recalculated_schedule_restores_auto_discard_when_block_fits() {
+        let mut tail = block_media("tail", 100.0);
+        tail.discarded = true;
+        let blocks = vec![block(1_000, 300.0, vec![block_media("a", 100.0), tail])];
+
+        let schedule = recalculate_schedule_from_blocks(&blocks, 1_150, 0.0, "advanced", None);
+
+        assert_eq!(
+            schedule.media_discards,
+            vec![
+                ScheduleMediaDiscard {
+                    id: "a".to_string(),
+                    discarded: false,
+                },
+                ScheduleMediaDiscard {
+                    id: "tail".to_string(),
+                    discarded: false,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn manual_anchor_recalculates_starts_from_clicked_music_forward() {
+        let blocks = vec![block(
+            1_000,
+            250.0,
+            vec![
+                block_media("a", 100.0),
+                block_media("b", 100.0),
+                block_media("tail", 100.0),
+            ],
+        )];
+
+        let schedule = recalculate_schedule_from_blocks(&blocks, 1_120, 0.0, "advanced", Some("b"));
+
+        assert_eq!(
+            schedule.selection,
+            BlockScheduleSelection::Active {
+                music_id: "b".to_string(),
+                elapsed_sec: 0.0,
+                active_queue_ids: vec!["a".to_string(), "b".to_string()],
+                media_starts: vec![
+                    ScheduleMediaStart {
+                        id: "a".to_string(),
+                        raw_start_sec: None,
+                        start_sec: 1_000,
+                        start_label: format_seconds_of_day(1_000),
+                        active: true,
+                    },
+                    ScheduleMediaStart {
+                        id: "b".to_string(),
+                        raw_start_sec: None,
+                        start_sec: 1_120,
+                        start_label: format_seconds_of_day(1_120),
+                        active: true,
+                    },
+                    ScheduleMediaStart {
+                        id: "tail".to_string(),
+                        raw_start_sec: None,
+                        start_sec: 1_220,
+                        start_label: format_seconds_of_day(1_220),
+                        active: false,
+                    },
+                ],
+            }
+        );
+        assert_eq!(
+            schedule.media_discards,
+            vec![
+                ScheduleMediaDiscard {
+                    id: "a".to_string(),
+                    discarded: false,
+                },
+                ScheduleMediaDiscard {
+                    id: "b".to_string(),
+                    discarded: false,
+                },
+                ScheduleMediaDiscard {
+                    id: "tail".to_string(),
+                    discarded: true,
+                },
+            ]
         );
     }
 }

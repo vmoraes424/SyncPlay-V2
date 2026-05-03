@@ -85,6 +85,18 @@ pub struct ScheduleMediaStart {
     pub active: bool,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScheduleMediaDiscard {
+    pub id: String,
+    pub discarded: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecalculatedBlockSchedule {
+    pub selection: BlockScheduleSelection,
+    pub media_discards: Vec<ScheduleMediaDiscard>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
 pub enum ScheduleMode {

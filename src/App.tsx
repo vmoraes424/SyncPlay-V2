@@ -18,7 +18,7 @@ import "./App.css";
 import type {
   MediaCategory, DirectoryOptionKind, DirectoryOption,
   DirFile, Music, SyncPlayData,
-  PlayableItem, ScheduledBlockDto, ScheduleMediaStartDto, ScheduleSelectionDto,
+  PlayableItem, ScheduledBlockDto, ScheduleMediaDiscardDto, ScheduleMediaStartDto, ScheduleSelectionDto,
   MixConfig,
 } from './types';
 import { BlockHeader } from './components/BlockHeader';
@@ -310,6 +310,60 @@ function scheduledBlocksForPlaybackWindow(blocks: ScheduledBlockDto[], baseDate:
   return blocks.filter((block) => block.startSec >= dayStart && block.startSec < dayEnd);
 }
 
+function applyScheduleMediaDiscards(
+  data: SyncPlayData,
+  discards: ScheduleMediaDiscardDto[]
+): SyncPlayData {
+  if (discards.length === 0) return data;
+
+  const discardById = new Map(discards.map((item) => [item.id, item.discarded]));
+  let changed = false;
+
+  const playlists = Object.fromEntries(
+    Object.entries(data.playlists).map(([plKey, playlist]) => [
+      plKey,
+      {
+        ...playlist,
+        blocks: Object.fromEntries(
+          Object.entries(playlist.blocks).map(([blockKey, block]) => {
+            const updateRecord = (record: Record<string, Music> | undefined) => {
+              if (!record) return record;
+
+              let recordChanged = false;
+              const nextRecord = Object.fromEntries(
+                Object.entries(record).map(([musicKey, music]) => {
+                  const uniqueId = `${plKey}-${blockKey}-${musicKey}`;
+                  const nextDiscarded = discardById.get(uniqueId);
+                  if (nextDiscarded === undefined || legacyBool(music.discarded) === nextDiscarded) {
+                    return [musicKey, music];
+                  }
+
+                  recordChanged = true;
+                  changed = true;
+                  return [musicKey, { ...music, discarded: nextDiscarded }];
+                })
+              );
+
+              return recordChanged ? nextRecord : record;
+            };
+
+            const musics = updateRecord(block.musics);
+            const commercials = updateRecord(block.commercials);
+
+            if (musics === block.musics && commercials === block.commercials) {
+              return [blockKey, block];
+            }
+
+            return [blockKey, { ...block, musics, commercials }];
+          })
+        ),
+      },
+    ])
+  );
+
+  return changed ? { ...data, playlists } : data;
+}
+
 // --- DroppableSlot ---
 // Linha fina entre os itens da playlist — torna-se o target do drop.
 
@@ -421,6 +475,8 @@ function App() {
   const playableItemsRef = useRef<PlayableItem[]>([]);
   const scheduleTimerRef = useRef<number | null>(null);
   const scheduleScrollKeyRef = useRef<string | null>(null);
+  const discardAnchorRef = useRef<string | null>(null);
+  const lastPlaybackDiscardAnchorRef = useRef<string | null>(null);
   const playlistItemRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   // DnD
@@ -662,22 +718,6 @@ function App() {
     setCueTime(t);
   };
 
-  const togglePlay = async (uniqueId: string) => {
-    try {
-      if (playingId === uniqueId) {
-        if (isPlaying) await invoke("pause_audio");
-        else await invoke("resume_audio");
-      } else {
-        const idx = playableItemsRef.current.findIndex(i => i.id === uniqueId);
-        if (idx !== -1) {
-          await invoke("play_index", { index: idx });
-          setPlayingId(uniqueId);
-          setIsPlaying(true);
-        }
-      }
-    } catch (e) { console.error(e); }
-  };
-
   const handleSeek = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const time_sec = Number(e.target.value);
     setCurrentTime(time_sec);
@@ -697,6 +737,138 @@ function App() {
       }, 1800);
     });
   }, []);
+
+  const clearScheduleTimer = useCallback(() => {
+    if (scheduleTimerRef.current !== null) {
+      window.clearTimeout(scheduleTimerRef.current);
+      scheduleTimerRef.current = null;
+    }
+  }, []);
+
+  const recalculatePlaylistDiscards = useCallback(async (
+    reason: string,
+    anchorMusicId: string | null = discardAnchorRef.current,
+    options: {
+      isCancelled?: () => boolean;
+      syncPlayback?: boolean;
+    } = {}
+  ) => {
+    if (!data) return null;
+
+    clearScheduleTimer();
+
+    const { playableItems, scheduledBlocks } = buildPlaylistRuntimeItems(data, mixConfig);
+    const currentDayScheduledBlocks = scheduledBlocksForPlaybackWindow(
+      scheduledBlocks,
+      playlistBaseDate
+    );
+
+    if (currentDayScheduledBlocks.length === 0) {
+      playableItemsRef.current = playableItems;
+      await invoke("set_queue", { items: playableItems });
+      if (!options.isCancelled?.()) {
+        scheduleScrollKeyRef.current = null;
+        setScheduledMusicId(null);
+        setScheduleStarts({});
+      }
+      return { effectiveQueue: playableItems, selection: null };
+    }
+
+    try {
+      const selection = await invoke<ScheduleSelectionDto>("get_schedule_selection", {
+        blocks: currentDayScheduledBlocks,
+        anchorMediaId: anchorMusicId,
+      });
+      if (options.isCancelled?.()) return null;
+
+      setData((prev) => prev ? applyScheduleMediaDiscards(prev, selection.mediaDiscards) : prev);
+      setScheduleStarts(Object.fromEntries(selection.mediaStarts.map(item => [item.id, item])));
+
+      const activeIds = new Set(selection.activeQueueIds);
+      const effectiveQueue = selection.activeQueueIds.length > 0
+        ? playableItems.filter(item => activeIds.has(item.id))
+        : playableItems;
+      playableItemsRef.current = effectiveQueue;
+      await invoke("set_queue", { items: effectiveQueue });
+
+      const scrollIfScheduleTargetChanged = (kind: string, musicId: string) => {
+        const key = `${kind}:${musicId}`;
+        if (scheduleScrollKeyRef.current === key) return;
+        scheduleScrollKeyRef.current = key;
+        scrollToPlaylistMusic(musicId);
+      };
+
+      if (selection.type === "active") {
+        setScheduledMusicId(selection.musicId);
+        if (options.syncPlayback !== false) {
+          scrollIfScheduleTargetChanged(`${reason}:active`, selection.musicId);
+        }
+
+        if (options.syncPlayback !== false) {
+          const index = effectiveQueue.findIndex(item => item.id === selection.musicId);
+          if (index !== -1) {
+            const playback = await invoke<{ current_id?: string | null }>("get_playback_state");
+            const alreadyThisTrack = playback.current_id === selection.musicId;
+            if (!alreadyThisTrack) {
+              await invoke("play_index", { index });
+              if (selection.elapsedSec > 0) {
+                await invoke("seek_audio", {
+                  positionMs: Math.floor(selection.elapsedSec * 1000),
+                });
+              }
+            }
+          }
+        }
+      } else if (selection.type === "upcoming") {
+        setScheduledMusicId(selection.musicId);
+        if (options.syncPlayback !== false) {
+          scrollIfScheduleTargetChanged(`${reason}:upcoming`, selection.musicId);
+        }
+        scheduleTimerRef.current = window.setTimeout(() => {
+          void recalculatePlaylistDiscards("timer", discardAnchorRef.current, {
+            syncPlayback: options.syncPlayback,
+          });
+        }, Math.max(0, selection.startsInSec * 1000));
+      } else {
+        scheduleScrollKeyRef.current = null;
+        setScheduledMusicId(null);
+      }
+
+      return { effectiveQueue, selection };
+    } catch (e) {
+      console.error(e);
+      return null;
+    }
+  }, [
+    clearScheduleTimer,
+    data,
+    mixConfig,
+    playlistBaseDate,
+    scrollToPlaylistMusic,
+    setData,
+  ]);
+
+  const togglePlay = async (uniqueId: string) => {
+    try {
+      if (playingId === uniqueId) {
+        if (isPlaying) await invoke("pause_audio");
+        else await invoke("resume_audio");
+      } else {
+        discardAnchorRef.current = uniqueId;
+        const recalculated = await recalculatePlaylistDiscards("manual-play", uniqueId, {
+          syncPlayback: false,
+        });
+        const effectiveQueue = recalculated?.effectiveQueue ?? playableItemsRef.current;
+        const idx = effectiveQueue.findIndex(i => i.id === uniqueId);
+        if (idx !== -1) {
+          await invoke("play_index", { index: idx });
+          lastPlaybackDiscardAnchorRef.current = uniqueId;
+          setPlayingId(uniqueId);
+          setIsPlaying(true);
+        }
+      }
+    } catch (e) { console.error(e); }
+  };
 
   useEffect(() => {
     const interval = setInterval(async () => {
@@ -744,95 +916,38 @@ function App() {
   useEffect(() => {
     if (!data) return;
 
-    const { playableItems, scheduledBlocks } = buildPlaylistRuntimeItems(data, mixConfig);
     let cancelled = false;
-
-    const clearScheduleTimer = () => {
-      if (scheduleTimerRef.current !== null) {
-        window.clearTimeout(scheduleTimerRef.current);
-        scheduleTimerRef.current = null;
-      }
-    };
-
-    async function applyScheduleSelection() {
-      clearScheduleTimer();
-
-      try {
-        const currentDayScheduledBlocks = scheduledBlocksForPlaybackWindow(
-          scheduledBlocks,
-          playlistBaseDate
-        );
-
-        if (currentDayScheduledBlocks.length === 0) {
-          playableItemsRef.current = playableItems;
-          await invoke("set_queue", { items: playableItems });
-          if (!cancelled) {
-            scheduleScrollKeyRef.current = null;
-            setScheduledMusicId(null);
-            setScheduleStarts({});
-          }
-          return;
-        }
-
-        const selection = await invoke<ScheduleSelectionDto>("get_schedule_selection", {
-          blocks: currentDayScheduledBlocks,
-        });
-        if (cancelled) return;
-
-        setScheduleStarts(Object.fromEntries(selection.mediaStarts.map(item => [item.id, item])));
-
-        const activeIds = new Set(selection.activeQueueIds);
-        const effectiveQueue = selection.activeQueueIds.length > 0
-          ? playableItems.filter(item => activeIds.has(item.id))
-          : playableItems;
-        playableItemsRef.current = effectiveQueue;
-        await invoke("set_queue", { items: effectiveQueue });
-
-        const scrollIfScheduleTargetChanged = (kind: string, musicId: string) => {
-          const key = `${kind}:${musicId}`;
-          if (scheduleScrollKeyRef.current === key) return;
-          scheduleScrollKeyRef.current = key;
-          scrollToPlaylistMusic(musicId);
-        };
-
-        if (selection.type === "active") {
-          setScheduledMusicId(selection.musicId);
-          scrollIfScheduleTargetChanged("active", selection.musicId);
-          const index = effectiveQueue.findIndex(item => item.id === selection.musicId);
-          if (index !== -1) {
-            const playback = await invoke<{ current_id?: string | null }>("get_playback_state");
-            const alreadyThisTrack = playback.current_id === selection.musicId;
-            if (!alreadyThisTrack) {
-              await invoke("play_index", { index });
-              if (selection.elapsedSec > 0) {
-                await invoke("seek_audio", {
-                  positionMs: Math.floor(selection.elapsedSec * 1000),
-                });
-              }
-            }
-          }
-        } else if (selection.type === "upcoming") {
-          setScheduledMusicId(selection.musicId);
-          scrollIfScheduleTargetChanged("upcoming", selection.musicId);
-          scheduleTimerRef.current = window.setTimeout(() => {
-            void applyScheduleSelection();
-          }, Math.max(0, selection.startsInSec * 1000));
-        } else {
-          scheduleScrollKeyRef.current = null;
-          setScheduledMusicId(null);
-        }
-      } catch (e) {
-        console.error(e);
-      }
-    }
-
-    void applyScheduleSelection();
+    void recalculatePlaylistDiscards("playlist-change", discardAnchorRef.current, {
+      isCancelled: () => cancelled,
+      syncPlayback: playingId == null,
+    });
 
     return () => {
       cancelled = true;
       clearScheduleTimer();
     };
-  }, [data, mixConfig, playlistBaseDate, scrollToPlaylistMusic]);
+  }, [clearScheduleTimer, data, playingId, recalculatePlaylistDiscards]);
+
+  useEffect(() => {
+    if (!playingId) {
+      lastPlaybackDiscardAnchorRef.current = null;
+      discardAnchorRef.current = null;
+      return;
+    }
+
+    if (
+      playingId === scheduledMusicId ||
+      playingId === lastPlaybackDiscardAnchorRef.current
+    ) {
+      return;
+    }
+
+    lastPlaybackDiscardAnchorRef.current = playingId;
+    discardAnchorRef.current = playingId;
+    void recalculatePlaylistDiscards("playback-change", playingId, {
+      syncPlayback: false,
+    });
+  }, [playingId, recalculatePlaylistDiscards, scheduledMusicId]);
 
   // --- DnD ---
 

@@ -146,6 +146,11 @@ export interface ScheduleMediaStartDto {
   active: boolean;
 }
 
+export interface ScheduleMediaDiscardDto {
+  id: string;
+  discarded: boolean;
+}
+
 export type ScheduleSelectionDto =
   | {
       type: 'active';
@@ -153,6 +158,7 @@ export type ScheduleSelectionDto =
       elapsedSec: number;
       activeQueueIds: string[];
       mediaStarts: ScheduleMediaStartDto[];
+      mediaDiscards: ScheduleMediaDiscardDto[];
     }
   | {
       type: 'upcoming';
@@ -160,9 +166,11 @@ export type ScheduleSelectionDto =
       startsInSec: number;
       activeQueueIds: string[];
       mediaStarts: ScheduleMediaStartDto[];
+      mediaDiscards: ScheduleMediaDiscardDto[];
     }
   | {
       type: 'empty';
       activeQueueIds: string[];
       mediaStarts: ScheduleMediaStartDto[];
+      mediaDiscards: ScheduleMediaDiscardDto[];
     };
