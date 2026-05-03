@@ -43,6 +43,21 @@ function formatTime(seconds: number) {
   return `${m}:${s < 10 ? "0" : ""}${s}`;
 }
 
+function splitArtistTitle(text: string): { artist: string | null; track: string } {
+  const idx = text.indexOf(" - ");
+  if (idx === -1) return { artist: null, track: text };
+  const artist = text.slice(0, idx).trim();
+  const track = text.slice(idx + 3).trim();
+  return { artist: artist || null, track: track || text };
+}
+
+function resolveCoverSrc(cover: string | undefined): string | undefined {
+  if (!cover?.trim()) return undefined;
+  const c = cover.trim();
+  if (/^https?:\/\//i.test(c) || c.startsWith("data:") || c.startsWith("blob:")) return c;
+  return convertFileSrc(c);
+}
+
 interface PlaylistBlockWindow {
   before: number;
   after: number;
@@ -163,6 +178,19 @@ function blockMediaRecord(block: SyncPlayData['playlists'][string]['blocks'][str
   const commercials = block.commercials;
   if (commercials && Object.keys(commercials).length > 0) return commercials;
   return block.musics ?? {};
+}
+
+function musicForPlaylistItemId(data: SyncPlayData | null, uniqueId: string | null): Music | null {
+  if (!data || !uniqueId) return null;
+  for (const [plKey, pl] of orderedPlaylistEntries(data)) {
+    for (const [blockKey, block] of orderedBlockEntries(pl.blocks)) {
+      const mediaMap = blockMediaRecord(block);
+      for (const [musicKey, music] of Object.entries(mediaMap)) {
+        if (`${plKey}-${blockKey}-${musicKey}` === uniqueId) return music;
+      }
+    }
+  }
+  return null;
 }
 
 function legacyBool(value: unknown) {
@@ -522,6 +550,11 @@ function App() {
         )
         : { groups: [] as VisiblePlaylistGroup[], hasMoreTail: false },
     [data, playingId, scheduledMusicId, playlistBlockWindow, playlistTailExpansion]
+  );
+
+  const nowPlayingMusic = useMemo(
+    () => musicForPlaylistItemId(data, playingId),
+    [data, playingId]
   );
 
   const loadNextPlaylistBlock = useCallback(() => {
@@ -936,15 +969,68 @@ function App() {
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
       <div className="grid grid-cols-2 h-[calc(100vh-50px)]">
 
-        {/* COLUNA ESQUERDA (playlist) */}
+        {/* COLUNA ESQUERDA (playlist + cabeçalho fixo) */}
         <div
           className={[
-            "scrollable-y relative flex flex-col overflow-y-auto",
+            "relative flex min-h-0 flex-col overflow-hidden",
             isOverPlaylist
               ? "border-emerald-400/60 shadow-[0_0_0_2px_rgba(52,211,153,0.3),0_4px_30px_rgba(0,0,0,0.1)] bg-slate-800/85"
               : "border-white/10",
           ].join(" ")}
         >
+          {/* Faixa atual: capa + artista / música */}
+          <div className="flex h-[50px] shrink-0 items-center gap-2 border-b border-white/10 px-2">
+            {nowPlayingMusic ? (
+              <>
+                <div className="relative h-[42px] w-[42px] shrink-0 overflow-hidden rounded bg-white/5">
+                  {(() => {
+                    const coverSrc = resolveCoverSrc(nowPlayingMusic.cover);
+                    return coverSrc ? (
+                      <img src={coverSrc} alt="" className="h-full w-full object-cover" />
+                    ) : null;
+                  })()}
+                </div>
+                <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 leading-tight">
+                  {(() => {
+                    const rawTitle = nowPlayingMusic.text || `Mídia: ${nowPlayingMusic.type ?? ""}`;
+                    const { artist, track } = splitArtistTitle(rawTitle);
+                    return (
+                      <>
+                        <span
+                          className={[
+                            "truncate text-[0.72rem] font-bold",
+                            artist ? "text-white" : "text-slate-500",
+                          ].join(" ")}
+                          title={artist || undefined}
+                        >
+                          {artist || "—"}
+                        </span>
+                        <span className="truncate text-[0.78rem] font-semibold text-white/90" title={track}>
+                          {track}
+                        </span>
+                      </>
+                    );
+                  })()}
+                </div>
+              </>
+            ) : (
+              <div className="flex w-full items-center justify-center text-[0.72rem] text-slate-500">
+                Nenhuma faixa em reprodução
+              </div>
+            )}
+          </div>
+          {/* Reserva: waveform */}
+          <div
+            className="h-20 shrink-0 border-b border-white/10"
+            aria-hidden
+          />
+          {/* Reserva: ícones / ações */}
+          <div
+            className="h-12 shrink-0 border-b border-white/10"
+            aria-hidden
+          />
+
+          <div className="scrollable-y relative flex min-h-0 flex-1 flex-col overflow-y-auto">
           {loading && <p className="text-center p-8 text-slate-400">Carregando lista...</p>}
           {error && <div className="text-center p-8 text-red-300">{error}</div>}
 
@@ -1066,6 +1152,7 @@ function App() {
               )}
             </div>
           )}
+          </div>
         </div>
 
         {/* COLUNA DIREITA (#midias)*/}
