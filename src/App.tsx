@@ -46,7 +46,7 @@ function removeMusicFromBlock(
   const record = blockMediaRecord(block);
   if (!(musicKey in record)) return null;
   const { [musicKey]: _removed, ...rest } = record;
-  const nextBlock = setBlockMediaRecord(block, mediaKind, rest);
+  const nextBlock = blockWithSyncedDurationTotal(setBlockMediaRecord(block, mediaKind, rest));
 
   return {
     ...data,
@@ -100,6 +100,47 @@ function setBlockMediaRecord(
     : { ...block, musics: media };
 }
 
+/** Remove todas as mídias do bloco (`musics` ou `commercials`, conforme `blockMediaKind`). */
+function clearBlockMedia(
+  data: SyncPlayData,
+  plKey: string,
+  blockKey: string
+): SyncPlayData | null {
+  const block = data.playlists[plKey]?.blocks[blockKey];
+  if (!block) return null;
+  const kind = blockMediaKind(block);
+  const emptied = blockWithSyncedDurationTotal(setBlockMediaRecord(block, kind, {}));
+  return {
+    ...data,
+    playlists: {
+      ...data.playlists,
+      [plKey]: {
+        ...data.playlists[plKey],
+        blocks: {
+          ...data.playlists[plKey].blocks,
+          [blockKey]: emptied,
+        },
+      },
+    },
+  };
+}
+
+/** Data do arquivo agregado (prefixo `AAAA-MM-DD-` quando vem de dia extra carregado). */
+function isoDateHintFromPlaylistKey(plKey: string, fallbackIso: string) {
+  return /^(\d{4}-\d{2}-\d{2})-/.exec(plKey)?.[1] ?? fallbackIso;
+}
+
+function formatBrazilianPlaylistDate(iso: string) {
+  const parts = iso.split('-');
+  if (parts.length !== 3) return iso;
+  const [yStr, moStr, dStr] = parts;
+  const y = Number(yStr);
+  const m = Number(moStr);
+  const d = Number(dStr);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return iso;
+  return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`;
+}
+
 function musicForPlaylistItemId(data: SyncPlayData | null, uniqueId: string | null): Music | null {
   if (!data || !uniqueId) return null;
   for (const [plKey, pl] of orderedPlaylistEntries(data)) {
@@ -145,6 +186,22 @@ function mediaDurationMs(music: Music) {
   return typeof music.duration === 'number' && Number.isFinite(music.duration)
     ? music.duration * 1000
     : null;
+}
+
+/** Mesma regra que `read_playlist` no Rust: soma durações reais das mídias do mapa ativo (`blockMediaRecord`). */
+function sumBlockDurationRealTotalMs(block: SyncPlayData['playlists'][string]['blocks'][string]): number {
+  let sum = 0;
+  for (const music of Object.values(blockMediaRecord(block))) {
+    const ms = mediaDurationMs(music);
+    if (typeof ms === 'number' && Number.isFinite(ms)) sum += ms;
+  }
+  return Math.round(sum);
+}
+
+function blockWithSyncedDurationTotal(
+  block: SyncPlayData['playlists'][string]['blocks'][string]
+): SyncPlayData['playlists'][string]['blocks'][string] {
+  return { ...block, duration_real_total_ms: sumBlockDurationRealTotalMs(block) };
 }
 
 function mediaMixOutMs(music: Music) {
@@ -376,6 +433,8 @@ function App() {
   const [scheduledMusicId, setScheduledMusicId] = useState<string | null>(null);
   const [trashHighlightPlaylistId, setTrashHighlightPlaylistId] = useState<string | null>(null);
   const [scheduleStarts, setScheduleStarts] = useState<Record<string, ScheduleMediaStartDto>>({});
+  const [playlistBlockHideDisabled, setPlaylistBlockHideDisabled] = useState<Record<string, boolean>>({});
+  const [playlistBlockExpanded, setPlaylistBlockExpanded] = useState<Record<string, boolean>>({});
 
   const {
     data,
@@ -944,18 +1003,81 @@ function App() {
                         {blocks.map(([blockKey, block]) => {
                           const musicEntries = Object.entries(blockMediaRecord(block));
                           const blockDisplayStart = getBlockDisplayStart(block.start, musicEntries);
+                          const blockUiKey = `${plKey}::${blockKey}`;
+                          const anchor = playingId ?? scheduledMusicId;
+                          const isCurrentBlock = Boolean(
+                            anchor && anchor.startsWith(`${plKey}-${blockKey}-`)
+                          );
+                          const programKey = (pl.program || '').trim() || plKey;
+                          const dateIso = isoDateHintFromPlaylistKey(plKey, playlistBaseDate);
+                          const dateTextBr = formatBrazilianPlaylistDate(dateIso);
+                          const scheduleBlockSec =
+                            typeof block.duration === 'number' && Number.isFinite(block.duration)
+                              ? block.duration
+                              : typeof block.size === 'number' && Number.isFinite(block.size)
+                                ? block.size
+                                : null;
+                          const durMs = block.duration_real_total_ms;
+                          const fromRealTotalSec =
+                            typeof durMs === 'number' && Number.isFinite(durMs) && durMs > 0
+                              ? durMs / 1000
+                              : null;
+                          const headerDurationSeconds =
+                            fromRealTotalSec ??
+                            (scheduleBlockSec !== null && scheduleBlockSec > 0 ? scheduleBlockSec : null);
+                          const hasFixedTime =
+                            block.start_alias != null && String(block.start_alias).trim() !== '';
+                          const dataHideDisabled = playlistBlockHideDisabled[blockUiKey] === true;
+                          const blockExpanded = playlistBlockExpanded[blockUiKey] !== false;
                           return (
                             <section
                               key={`${plKey}-${blockKey}`}
+                              data-playlist={plKey}
+                              data-pkey={programKey}
+                              data-bkey={blockKey}
+                              data-hide-disabled={dataHideDisabled ? 'true' : 'false'}
                               className={[
-                                "playlist-block",
-                                block.type === "musical" ? "playlist-block--musical" : "playlist-block--commercial",
-                              ].join(" ")}
+                                'playlist-block',
+                                block.type === 'musical'
+                                  ? 'playlist-block--musical'
+                                  : 'playlist-block--commercial',
+                                hasFixedTime ? 'playlist-block--fixed' : '',
+                              ]
+                                .filter(Boolean)
+                                .join(' ')}
                             >
                               <BlockHeader
-                                blockType={block.type}
-                                startLabel={typeof blockDisplayStart === 'number' ? formatSecondsOfDay(blockDisplayStart, true) : undefined}
+                                playlistKey={plKey}
+                                programKey={programKey}
+                                blockKey={blockKey}
+                                dateText={dateTextBr}
+                                isCommercialBlock={block.type !== 'musical'}
+                                startTimeSeconds={blockDisplayStart}
+                                durationSeconds={headerDurationSeconds}
+                                hasFixedTime={hasFixedTime}
+                                isCurrentBlock={isCurrentBlock}
+                                dataHideDisabled={dataHideDisabled}
+                                onToggleHideDisabled={() => {
+                                  setPlaylistBlockHideDisabled((prev) => ({
+                                    ...prev,
+                                    [blockUiKey]: !prev[blockUiKey],
+                                  }));
+                                }}
+                                onClearBlock={() => {
+                                  setData((prev) => {
+                                    if (!prev) return prev;
+                                    return clearBlockMedia(prev, plKey, blockKey) ?? prev;
+                                  });
+                                }}
+                                expanded={blockExpanded}
+                                onToggleExpanded={() => {
+                                  setPlaylistBlockExpanded((prev) => {
+                                    const isExp = prev[blockUiKey] !== false;
+                                    return { ...prev, [blockUiKey]: !isExp };
+                                  });
+                                }}
                               />
+                              {blockExpanded ? (
                               <div className="playlist-block-body">
                                 {musicEntries.length === 0 ? (
                                   <div className="px-2 py-1">
@@ -1033,6 +1155,7 @@ function App() {
                                   </>
                                 )}
                               </div>
+                              ) : null}
                               <div className="playlist-block-footer" />
                             </section>
                           );

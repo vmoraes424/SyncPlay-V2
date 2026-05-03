@@ -88,6 +88,10 @@ export interface Block {
   start?: number;
   duration?: number;
   size?: number;
+  /** Horário fixo de referência (legado SyncPlay / `buildBlockHeaderHTML`) */
+  start_alias?: string | number | null;
+  /** Soma das durações reais das mídias (ms), preenchido em `read_playlist` (Rust) na chave homônima. */
+  duration_real_total_ms?: number;
   disableDiscard?: boolean | number;
   disable_discard?: boolean | number;
   /** Itens musicais (blocos tipo musical) */

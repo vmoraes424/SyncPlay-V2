@@ -158,19 +158,12 @@ select,
   border-color: #258ad0;
 }
 
-.playlist-block--musical .playlist-block-footer {
-  border-top-color: rgba(245, 168, 52, 0.5);
-}
-
 .playlist-block--commercial .playlist-block-footer {
   border-top-color: rgba(37, 138, 208, 0.5);
 }
 
-.playlist-block-header {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  padding: 0.85rem 0.75rem 0.6rem;
+.playlist-block[data-hide-disabled="true"] .playlist-music-item--disabled-extra {
+  display: none;
 }
 
 .playlist-block-line {
@@ -182,12 +175,13 @@ select,
 
 .playlist-block-body {
   padding: 0 0.35rem 0.35rem;
+  gap: 0.35rem;
+  display: flex;
+  flex-direction: column;
 }
 
 .playlist-block-footer {
   height: 0;
-  margin: 0 0.75rem 0.65rem;
-  border-top: 1px dashed rgba(148, 163, 184, 0.35);
 }
 
 .playlist-block-start-time,
