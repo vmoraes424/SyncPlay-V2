@@ -179,7 +179,7 @@ export function PlaylistMusicItem({
       {/* Linha 1: cover+play | artista/música | tempos */}
       <div className="flex flex-row gap-3 items-center w-full min-w-0">
         {/* Cover com botão de play sobreposto */}
-        <div className="relative w-[100px] h-[64px] shrink-0 rounded overflow-hidden bg-white/5">
+        <div className="relative w-[100px] h-[100px] shrink-0 rounded-xl overflow-hidden bg-white/5">
           {music.cover ? (
             <img
               src={music.cover}
