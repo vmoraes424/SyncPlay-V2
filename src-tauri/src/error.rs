@@ -14,6 +14,8 @@ pub enum AppError {
     AudioCommand(String),
     #[error("Estado da aplicacao indisponivel: {0}")]
     State(String),
+    #[error("Erro ao decodificar audio: {0}")]
+    AudioDecode(String),
 }
 
 impl Serialize for AppError {

@@ -41,6 +41,20 @@ export interface MixConfig {
   mix_music?: number;
 }
 
+/** Configurações de detecção automática de mix (de configs.json). */
+export interface AutoMixSettings {
+  /** Liga detecção automática para músicas (type === "music"). */
+  automaticMix: boolean;
+  /** Liga detecção automática para mídias não-música e não-comercial. */
+  automaticMixMedia: boolean;
+  /** Sensibilidade para músicas: 0–100. Default: 25. */
+  musicMixSensitivity: number;
+  /** Sensibilidade para mídias: 0–100. Default: 20. */
+  mediaMixSensitivity: number;
+  /** Modo de extração das amostras. */
+  mixType: 'basic' | 'advanced';
+}
+
 export interface ExtraData {
   fixed?: boolean;
   favorite?: boolean;
@@ -113,6 +127,8 @@ export interface SyncPlayData {
 
 export interface PlayableItem {
   id: string;
+  /** ID numérico da mídia na biblioteca (music.id da playlist), usado como chave no cache mixPoints.json. */
+  media_id: string | null;
   path: string;
   mix_end_ms: number | null;
   duration_ms: number | null;
@@ -121,6 +137,8 @@ export interface PlayableItem {
   fade_out_time_ms: number | null;
   /** Fadeout ao trocar manualmente (espaço ou clique). Música=3000, mídia=1500. */
   manual_fade_out_ms: number | null;
+  /** Tipo da mídia: "music", "vem", "commercial", etc. */
+  media_type: string;
 }
 
 export interface ScheduledMusicDto {

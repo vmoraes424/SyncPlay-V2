@@ -2,6 +2,7 @@ import type { Music, MediaCategory } from '../types';
 import type { LibMusicFiltersState } from '../hooks/useSyncplayLibrary';
 
 import { formatTimeRemaining } from '../time';
+import { useEffect } from 'react';
 import proximaBcoImg from '../assets/proxima_bco.png';
 import lixeiraImg from '../assets/lixeira.png';
 import { invoke } from '@tauri-apps/api/core';
@@ -82,13 +83,22 @@ function splitArtistTitle(text: string): { artist: string | null; track: string 
   return { artist: artist || null, track: track || text };
 }
 
-function getMixDurationSec(music: Music, displayDuration: number): number | null {
+function getMixDurationSec(
+  music: Music,
+  displayDuration: number,
+  overrideMixEndMs?: number
+): { sec: number; isOverride: boolean } | null {
+  // Override automático tem prioridade máxima sobre qualquer valor da biblioteca
+  if (overrideMixEndMs != null && displayDuration > 0) {
+    const tail = displayDuration - overrideMixEndMs / 1000;
+    if (tail > 0) return { sec: tail, isOverride: true };
+  }
   const ms = music.extra?.mix?.mix_total_milesecond;
-  if (ms != null && ms > 0) return ms / 1000;
+  if (ms != null && ms > 0) return { sec: ms / 1000, isOverride: false };
   const mixEndMs = music.extra?.mix?.mix_end;
   if (mixEndMs != null && displayDuration > 0) {
     const tail = displayDuration - mixEndMs / 1000;
-    if (tail > 0) return tail;
+    if (tail > 0) return { sec: tail, isOverride: false };
   }
   return null;
 }
@@ -185,6 +195,8 @@ interface PlaylistMusicItemProps {
   libMusicFilterIds: LibMusicFiltersState;
   playlistSidebarFilterHighlight: PlaylistSidebarFilterHighlight;
   onPlaylistFilterClick?: (payload: PlaylistFilterClickPayload) => void;
+  /** mix_end_ms detectado automaticamente — prevalece sobre music.extra.mix.mix_end para UI */
+  overrideMixEndMs?: number;
 }
 
 export function PlaylistMusicItem({
@@ -212,6 +224,7 @@ export function PlaylistMusicItem({
   libMusicFilterIds,
   playlistSidebarFilterHighlight,
   onPlaylistFilterClick,
+  overrideMixEndMs,
 }: PlaylistMusicItemProps) {
   const { musicLibrary, musicFilters, mediaLibrary, mediaFilters } = useSyncplayLibraryMaps();
 
@@ -264,8 +277,9 @@ export function PlaylistMusicItem({
 
   const prog = displayDuration ? (itemCurrentTime / displayDuration) * 100 : 0;
   let mixEndPct: number | null = null;
-  if (music.extra?.mix?.mix_end && displayDuration) {
-    const mixTriggerSec = Math.max(0, music.extra.mix.mix_end / 1000 - 1);
+  const effectiveMixEndMs = overrideMixEndMs ?? music.extra?.mix?.mix_end;
+  if (effectiveMixEndMs && displayDuration) {
+    const mixTriggerSec = Math.max(0, effectiveMixEndMs / 1000 - 1);
     mixEndPct = (mixTriggerSec / displayDuration) * 100;
   }
 
@@ -279,8 +293,29 @@ export function PlaylistMusicItem({
   }
 
   const remainingSec = Math.max(0, displayDuration - itemCurrentTime);
-  const mixSec = getMixDurationSec(music, displayDuration);
+  const mixResult = getMixDurationSec(music, displayDuration, overrideMixEndMs);
+  const mixSec = mixResult?.sec ?? null;
+  const mixIsOverride = mixResult?.isOverride ?? false;
   const mixLabel = mixSec !== null ? formatMixLabel(mixSec) : null;
+
+  useEffect(() => {
+    if (overrideMixEndMs == null) return;
+    const libMixEndMs = music.extra?.mix?.mix_end ?? null;
+    const libMixTotal = music.extra?.mix?.mix_total_milesecond ?? null;
+    const libSec = libMixTotal != null
+      ? libMixTotal / 1000
+      : libMixEndMs != null && displayDuration > 0
+        ? displayDuration - libMixEndMs / 1000
+        : null;
+    const overrideSec = displayDuration > 0 ? displayDuration - overrideMixEndMs / 1000 : null;
+    console.debug(
+      `[AutoMix UI] Override aplicado em ${itemUniqueId}\n` +
+      `  biblioteca : mix_total=${libMixTotal}ms, mix_end=${libMixEndMs}ms → ${libSec?.toFixed(2) ?? 'n/a'}s\n` +
+      `  override   : mix_end_ms=${overrideMixEndMs} → ${overrideSec?.toFixed(2) ?? 'n/a'}s\n` +
+      `  exibindo   : ${mixSec?.toFixed(2) ?? 'n/a'}s  (isOverride=${mixIsOverride})`
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [overrideMixEndMs, itemUniqueId]);
 
   const fileLabel =
     music.path != null && music.path !== ''
@@ -722,7 +757,15 @@ export function PlaylistMusicItem({
             className="w-10 h-10 rotate-90 cursor-pointer"
           />
           <div className='flex gap-3 mt-1'>
-            {mixLabel && <span className="playlist-music-mix-label">{mixLabel}</span>}
+            {mixLabel && (
+              <span
+                className="playlist-music-mix-label"
+                style={mixIsOverride ? { color: '#ef4444', fontWeight: 700 } : undefined}
+                title={mixIsOverride ? 'Ponto de mix detectado automaticamente' : undefined}
+              >
+                {mixLabel}
+              </span>
+            )}
             {startLabel && (
               <span className="playlist-music-start-time" title="Horário previsto da mídia">
                 {startLabel}

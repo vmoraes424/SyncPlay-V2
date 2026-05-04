@@ -7,7 +7,7 @@ import type {
   MediaCategory, DirectoryOptionKind, DirectoryOption,
   DirFile, Music, SyncPlayData,
   PlayableItem, ScheduledBlockDto, ScheduleMediaDiscardDto, ScheduleMediaStartDto, ScheduleSelectionDto,
-  MixConfig,
+  MixConfig, AutoMixSettings,
 } from './types';
 import { BlockHeader } from './components/BlockHeader';
 import { PlaylistMusicItem } from './components/PlaylistMusicItem';
@@ -20,6 +20,7 @@ import { SECONDS_PER_DAY, usePlaylistData } from './hooks/usePlaylistData';
 import { useSyncplayLibrary } from './hooks/useSyncplayLibrary';
 import { formatSecondsOfDay, formatTime } from './time';
 import { SyncplayLibraryProvider } from './library/SyncplayLibraryContext';
+import { useAutoMixDetection, parseAutoMixSettings } from './hooks/useAutoMixDetection';
 
 async function fetchConfigSafe<T>(filename: string): Promise<T | null> {
   try {
@@ -244,12 +245,14 @@ function buildPlaylistRuntimeItems(data: SyncPlayData, mixConfig: MixConfig | nu
         if (playPath) {
           playableItems.push({
             id: uniqueId,
+            media_id: music.id != null ? String(music.id) : null,
             path: playPath,
             mix_end_ms: music.extra?.mix?.mix_end ?? null,
             duration_ms,
             fade_duration_ms,
             fade_out_time_ms,
             manual_fade_out_ms,
+            media_type: mediaType,
           });
         }
 
@@ -451,6 +454,40 @@ function App() {
     loadAllPlaylistBlocksUntilEnd,
   } = usePlaylistData({ anchorMusicId: playingId ?? scheduledMusicId });
 
+  // Configurações de detecção automática de mix (lidas de configs.json).
+  // Armazenadas como campos primitivos separados para estabilidade de referência
+  // (evitar que o objeto parseado novo a cada fetch dispare re-renders extras).
+  const [autoMixEnabled, setAutoMixEnabled] = useState(false);
+  const [autoMixMediaEnabled, setAutoMixMediaEnabled] = useState(false);
+  const [musicMixSensitivity, setMusicMixSensitivity] = useState(25);
+  const [mediaMixSensitivity, setMediaMixSensitivity] = useState(20);
+  const [mixTypeAdvanced, setMixTypeAdvanced] = useState(false);
+
+  useEffect(() => {
+    fetchConfigSafe<Record<string, unknown>>('Configs/configs.json').then((cfg) => {
+      if (cfg) {
+        const parsed = parseAutoMixSettings(cfg);
+        setAutoMixEnabled(parsed.automaticMix);
+        setAutoMixMediaEnabled(parsed.automaticMixMedia);
+        setMusicMixSensitivity(parsed.musicMixSensitivity);
+        setMediaMixSensitivity(parsed.mediaMixSensitivity);
+        setMixTypeAdvanced(parsed.mixType === 'advanced');
+      }
+    });
+  }, []);
+
+  // Objeto estável: só recria quando os valores primitivos mudam de fato
+  const autoMixSettings = useMemo<AutoMixSettings | null>(
+    () => (autoMixEnabled || autoMixMediaEnabled ? {
+      automaticMix: autoMixEnabled,
+      automaticMixMedia: autoMixMediaEnabled,
+      musicMixSensitivity,
+      mediaMixSensitivity,
+      mixType: mixTypeAdvanced ? 'advanced' : 'basic',
+    } : null),
+    [autoMixEnabled, autoMixMediaEnabled, musicMixSensitivity, mediaMixSensitivity, mixTypeAdvanced]
+  );
+
   useEffect(() => {
     if (playingId == null) return;
     setTrashHighlightPlaylistId((prev) => (prev === playingId ? null : prev));
@@ -462,6 +499,44 @@ function App() {
   const discardAnchorRef = useRef<string | null>(null);
   const lastPlaybackDiscardAnchorRef = useRef<string | null>(null);
   const playlistItemRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  // Itens da playlist completa (sem filtragem de descarte) para o hook de detecção.
+  // Limita ao lookahead para não processar centenas de arquivos de dias futuros.
+  const AUTO_MIX_LOOKAHEAD = 40;
+  const allPlayableItems = useMemo(
+    () => (data ? buildPlaylistRuntimeItems(data, mixConfig).playableItems.slice(0, AUTO_MIX_LOOKAHEAD) : []),
+    [data, mixConfig]
+  );
+
+  // Detecção automática de ponto de mix por sensibilidade
+  const autoMixOverrides = useAutoMixDetection(allPlayableItems, autoMixSettings);
+
+  // Aplica overrides de mix_end_ms calculados automaticamente sobre uma fila de itens
+  const applyMixOverrides = useCallback(
+    (items: PlayableItem[]): PlayableItem[] => {
+      if (Object.keys(autoMixOverrides).length === 0) return items;
+      return items.map((item) =>
+        item.id in autoMixOverrides
+          ? { ...item, mix_end_ms: autoMixOverrides[item.id] }
+          : item
+      );
+    },
+    [autoMixOverrides]
+  );
+
+  // Quando novos overrides chegam, atualiza a fila no motor de áudio.
+  // Usa ref para applyMixOverrides para evitar que a mudança do callback
+  // (que co-varia com autoMixOverrides) dispare o effect duas vezes.
+  const applyMixOverridesRef = useRef(applyMixOverrides);
+  applyMixOverridesRef.current = applyMixOverrides;
+
+  useEffect(() => {
+    if (Object.keys(autoMixOverrides).length === 0) return;
+    const current = playableItemsRef.current;
+    if (current.length === 0) return;
+    const updated = applyMixOverridesRef.current(current);
+    void invoke('set_queue', { items: updated });
+  }, [autoMixOverrides]);
 
   // Coluna Direita (Selects & Files)
   const [mediaCategory, setMediaCategory] = useState<MediaCategory>('unset');
@@ -767,14 +842,15 @@ function App() {
     );
 
     if (currentDayScheduledBlocks.length === 0) {
-      playableItemsRef.current = playableItems;
-      await invoke("set_queue", { items: playableItems });
+      const queueItems = applyMixOverrides(playableItems);
+      playableItemsRef.current = queueItems;
+      await invoke("set_queue", { items: queueItems });
       if (!options.isCancelled?.()) {
         scheduleScrollKeyRef.current = null;
         setScheduledMusicId(null);
         setScheduleStarts({});
       }
-      return { effectiveQueue: playableItems, selection: null };
+      return { effectiveQueue: queueItems, selection: null };
     }
 
     try {
@@ -788,9 +864,10 @@ function App() {
       setScheduleStarts(Object.fromEntries(selection.mediaStarts.map(item => [item.id, item])));
 
       const activeIds = new Set(selection.activeQueueIds);
-      const effectiveQueue = selection.activeQueueIds.length > 0
+      const filteredItems = selection.activeQueueIds.length > 0
         ? playableItems.filter(item => activeIds.has(item.id))
         : playableItems;
+      const effectiveQueue = applyMixOverrides(filteredItems);
       playableItemsRef.current = effectiveQueue;
       await invoke("set_queue", { items: effectiveQueue });
 
@@ -838,6 +915,7 @@ function App() {
       return null;
     }
   }, [
+    applyMixOverrides,
     clearScheduleTimer,
     data,
     mixConfig,
@@ -1105,6 +1183,7 @@ function App() {
                                             <PlaylistMusicItem
                                               music={music}
                                               itemUniqueId={uniqueId}
+                                              overrideMixEndMs={autoMixOverrides[uniqueId]}
                                               filterVisibility={playlistFilterVis}
                                               libraryYearDecade={libraryYearDecade}
                                               showMusicFileName={showNameMusicFiles}

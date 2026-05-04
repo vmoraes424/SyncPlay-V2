@@ -56,7 +56,8 @@ pub fn run() {
             commands::audio::skip_with_fade,
             commands::audio::get_playback_state,
             commands::schedule::get_schedule_selection,
-            commands::settings::list_directories
+            commands::settings::list_directories,
+            commands::mix::compute_mix_point_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
