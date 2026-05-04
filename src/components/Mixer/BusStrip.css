@@ -1,0 +1,58 @@
+.bus-strip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 6px;
+  width: 78px;
+  border: 1px solid #1a1a1a;
+  border-radius: 4px;
+  flex-shrink: 0;
+  transition: opacity 0.15s;
+}
+
+.bus-strip--muted {
+  opacity: 0.5;
+}
+
+.bus-strip__header {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 4px;
+}
+
+.bus-strip__label {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex: 1;
+}
+
+.bus-strip__av {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  width: 100%;
+  justify-content: center;
+}
+
+.bus-strip__device-select {
+  width: 100%;
+  font-size: 8px;
+  background: #0a0a0a;
+  color: #888;
+  border: 1px solid #333;
+  border-radius: 3px;
+  padding: 2px 3px;
+  cursor: pointer;
+  text-overflow: ellipsis;
+}
+
+.bus-strip__device-select:focus {
+  outline: none;
+  border-color: #555;
+  color: #ccc;
+}

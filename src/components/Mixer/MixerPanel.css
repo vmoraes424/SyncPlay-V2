@@ -1,0 +1,73 @@
+.mixer-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #161616;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.mixer-panel__title {
+  padding: 6px 12px;
+  background: #0e0e0e;
+  border-bottom: 1px solid #222;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.mixer-panel__title span {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: #666;
+  text-transform: uppercase;
+}
+
+.mixer-panel__body {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex: 1;
+  padding: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: #333 #111;
+}
+
+.mixer-panel__body::-webkit-scrollbar {
+  height: 6px;
+}
+
+.mixer-panel__body::-webkit-scrollbar-track {
+  background: #111;
+}
+
+.mixer-panel__body::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 3px;
+}
+
+.mixer-panel__channels {
+  display: flex;
+  flex-direction: row;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.mixer-panel__sep {
+  width: 1px;
+  background: #333;
+  margin: 0 8px;
+  align-self: stretch;
+  flex-shrink: 0;
+}
+
+.mixer-panel__buses {
+  display: flex;
+  flex-direction: row;
+  gap: 4px;
+  flex-shrink: 0;
+}

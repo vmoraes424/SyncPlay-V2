@@ -16,6 +16,7 @@ import { PlaylistCurrentBlock } from './components/playlist/PlaylistCurrentBlock
 import { PlaylistLoadMoreControls } from './components/playlist/PlaylistLoadMoreControls';
 import { PlaylistPlaybackBar } from './components/playlist/PlaylistPlaybackBar';
 import { SettingsDock } from './components/settings/SettingsDock';
+import { MixerPanel } from './components/Mixer';
 import { SECONDS_PER_DAY, usePlaylistData } from './hooks/usePlaylistData';
 import { useSyncplayLibrary } from './hooks/useSyncplayLibrary';
 import { formatSecondsOfDay, formatTime } from './time';
@@ -1582,16 +1583,10 @@ function App() {
           />
         )}
 
-        {/* COLUNA 3 — preenche o espaço restante */}
+        {/* COLUNA 3 — Mixer */}
         {!isRetrieveMode && (
-          <div className="flex flex-col min-h-0 flex-1 overflow-hidden bg-[#262626]">
-            <div className="px-5 pt-5 pb-3 border-b border-[#353535] shrink-0">
-              <h2 className="text-[1rem] font-semibold text-slate-400 tracking-[0.04em] uppercase">Coluna 3</h2>
-            </div>
-            <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-600 text-[0.88rem] text-center p-8">
-              <span className="text-[2.5rem] opacity-30" aria-hidden>⬜</span>
-              <p>Painel disponível</p>
-            </div>
+          <div className="flex flex-col min-h-0 flex-1 overflow-hidden bg-[#161616]">
+            <MixerPanel />
           </div>
         )}
 

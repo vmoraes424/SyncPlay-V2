@@ -3884,6 +3884,7 @@ name = "syncplay-v2"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "cpal",
  "rodio",
  "serde",
  "serde_json",
