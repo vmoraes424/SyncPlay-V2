@@ -45,6 +45,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::settings::read_playlist,
             commands::settings::read_config,
+            commands::settings::write_config,
             commands::settings::read_app_settings,
             commands::settings::get_app_setting,
             commands::settings::write_app_settings,

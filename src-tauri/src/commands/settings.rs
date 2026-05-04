@@ -1,4 +1,5 @@
 use crate::core::files::{list_audio_files_in_directories, read_text_file_lossy};
+use std::fs;
 use crate::core::playlist::enrich_playlist_json_with_block_duration_totals;
 use crate::core::settings::{load_app_settings_from_disk, write_app_settings_to_disk};
 use crate::error::AppResult;
@@ -33,6 +34,16 @@ pub fn get_app_setting(key: String) -> AppResult<Value> {
 #[tauri::command]
 pub fn write_app_settings(settings: Value) -> AppResult<()> {
     write_app_settings_to_disk(&settings)
+}
+
+#[tauri::command]
+pub fn write_config(filename: &str, content: &str) -> AppResult<()> {
+    let path = format!("C:/SyncPlay/{}", filename);
+    if let Some(parent) = std::path::Path::new(&path).parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(&path, content)?;
+    Ok(())
 }
 
 #[tauri::command]

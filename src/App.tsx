@@ -21,6 +21,7 @@ import { useSyncplayLibrary } from './hooks/useSyncplayLibrary';
 import { formatSecondsOfDay, formatTime } from './time';
 import { SyncplayLibraryProvider } from './library/SyncplayLibraryContext';
 import { useAutoMixDetection, parseAutoMixSettings } from './hooks/useAutoMixDetection';
+import { useColumnResize } from './hooks/useColumnResize';
 
 async function fetchConfigSafe<T>(filename: string): Promise<T | null> {
   try {
@@ -538,6 +539,16 @@ function App() {
     void invoke('set_queue', { items: updated });
   }, [autoMixOverrides]);
 
+  // Colunas redimensionáveis
+  const {
+    headerRef,
+    col1Style,
+    col2Style,
+    handleW,
+    isRetrieveMode,
+    onHandleMouseDown,
+  } = useColumnResize();
+
   // Coluna Direita (Selects & Files)
   const [mediaCategory, setMediaCategory] = useState<MediaCategory>('unset');
   const [directoryOptions, setDirectoryOptions] = useState<DirectoryOption[]>([]);
@@ -1027,10 +1038,18 @@ function App() {
 
   return (
     <SyncplayLibraryProvider value={libraryMaps}>
-      <div className="grid grid-cols-2 h-[calc(100vh-50px)] bg-[#262626]">
+      {/* Wrapper das 3 colunas */}
+      <div
+        ref={headerRef}
+        className="flex h-[calc(100vh-50px)] bg-[#262626]"
+        style={{ overflow: 'hidden' }}
+      >
 
-        {/* COLUNA ESQUERDA (playlist + cabeçalho fixo) */}
-        <div className="relative flex min-h-0 flex-col overflow-hidden bg-[#262626] border-r border-[#353535]">
+        {/* COLUNA 1 (playlist + cabeçalho fixo) */}
+        <div
+          className="relative flex min-h-0 flex-col overflow-hidden bg-[#262626] border-r border-[#353535]"
+          style={col1Style}
+        >
           {/* Faixa atual: capa + artista / música */}
           <MusicInfo nowPlayingMusic={nowPlayingMusic} />
           {/* Reserva: waveform */}
@@ -1259,8 +1278,19 @@ function App() {
           </div>
         </div>
 
-        {/* COLUNA DIREITA (#midias)*/}
-        <div id="midias" className="flex flex-col overflow-hidden p-0 bg-[#262626]">
+        {/* Drag-handle entre col-1 e col-2 */}
+        <div
+          className="shrink-0 cursor-col-resize bg-[#353535] hover:bg-neutral-500 transition-colors duration-150 z-10"
+          style={{ width: handleW, touchAction: 'none' }}
+          onMouseDown={onHandleMouseDown('h1')}
+        />
+
+        {/* COLUNA 2 (#midias — biblioteca + CUE) */}
+        <div
+          id="midias"
+          className="flex flex-col overflow-hidden p-0 bg-[#262626]"
+          style={col2Style}
+        >
           <div className="px-5 pt-5 pb-3 border-b border-[#353535] flex flex-col gap-2.5 shrink-0">
             <h2 className="text-[1rem] font-semibold text-slate-400 tracking-[0.04em] uppercase">📂 Biblioteca de Mídias</h2>
             <div className="flex gap-2">
@@ -1495,6 +1525,29 @@ function App() {
             </div>
           )}
         </div>
+
+        {/* Drag-handle entre col-2 e col-3 */}
+        {!isRetrieveMode && (
+          <div
+            className="shrink-0 cursor-col-resize bg-[#353535] hover:bg-neutral-500 transition-colors duration-150 z-10"
+            style={{ width: handleW, touchAction: 'none' }}
+            onMouseDown={onHandleMouseDown('h2')}
+          />
+        )}
+
+        {/* COLUNA 3 — preenche o espaço restante */}
+        {!isRetrieveMode && (
+          <div className="flex flex-col min-h-0 flex-1 overflow-hidden bg-[#262626]">
+            <div className="px-5 pt-5 pb-3 border-b border-[#353535] shrink-0">
+              <h2 className="text-[1rem] font-semibold text-slate-400 tracking-[0.04em] uppercase">Coluna 3</h2>
+            </div>
+            <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-600 text-[0.88rem] text-center p-8">
+              <span className="text-[2.5rem] opacity-30" aria-hidden>⬜</span>
+              <p>Painel disponível</p>
+            </div>
+          </div>
+        )}
+
       </div>
 
       <SettingsDock />
