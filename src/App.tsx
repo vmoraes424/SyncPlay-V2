@@ -814,11 +814,6 @@ function App() {
             const alreadyThisTrack = playback.current_id === selection.musicId;
             if (!alreadyThisTrack) {
               await invoke("play_index", { index });
-              if (selection.elapsedSec > 0) {
-                await invoke("seek_audio", {
-                  positionMs: Math.floor(selection.elapsedSec * 1000),
-                });
-              }
             }
           }
         }
