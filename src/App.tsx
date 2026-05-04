@@ -1074,11 +1074,12 @@ function App() {
             }}
             onNext={() => invoke("skip_with_fade").catch(console.error)}
           />
-          <div className="w-full h-full min-h-0 relative flex">
-            <div className="w-12 h-full ">
-
-            </div>
-            <div className="w-full h-full min-h-0 relative flex flex-col">
+          <div className="flex h-full min-h-0 w-full min-w-0">
+            <div
+              className="h-full min-w-3 shrink basis-12"
+              aria-hidden
+            />
+            <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
               <PlaylistCurrentBlock
                 predictedTimeLabel={playlistCurrentBlockLine.predictedTimeLabel}
                 programName={playlistCurrentBlockLine.programName}
