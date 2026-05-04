@@ -6,7 +6,7 @@
  * descrito na spec. O resultado é cacheado em `C:/SyncPlay/Configs/mixPoints.json`.
  *
  * Retorna um mapa `itemId → mix_end_ms` com os overrides computados.
- * O override só é aplicado se `autoMixTimeSec > libraryMixTimeSec + 0.1` (gate da spec §8).
+ * Se houver resultado válido no cache/algoritmo, aplica o ponto detectado com prioridade.
  *
  * Concorrência limitada a MAX_CONCURRENT.
  * O effect usa uma chave derivada dos PATHS (string, comparada por valor) como dep,
@@ -20,7 +20,16 @@ import type { AutoMixSettings, PlayableItem } from '../types';
 
 interface RustMixPointResult {
   mix_time_sec: number;
+  mixTimeSec?: number;
   detected: boolean;
+}
+
+interface RustCachedMixPointResult {
+  mix_time_sec: number;
+  mixTimeSec?: number;
+  detected: boolean;
+  cache_hit: boolean;
+  cacheHit?: boolean;
 }
 
 /** Número máximo de decodificações de áudio simultâneas. */
@@ -31,6 +40,7 @@ const MAX_CONCURRENT = 3;
  * enquanto o primeiro ciclo de schedule/descarte termina).
  */
 const DETECTION_DEBOUNCE_MS = 1500;
+const AUTO_MIX_DEBUG = false;
 
 /** Faz o parse de valores de sensibilidade que podem vir como número ou string "25,00". */
 function parseSensitivity(raw: unknown, fallback: number): number {
@@ -84,9 +94,6 @@ export function useAutoMixDetection(
 ): Record<string, number> {
   const [overrides, setOverrides] = useState<Record<string, number>>({});
 
-  const pendingRef = useRef<Array<() => void>>([]);
-  const runningRef = useRef(0);
-
   /**
    * Ref que sempre aponta para a versão mais recente de playableItems.
    * O effect lê daqui quando o timer dispara (não da closure do effect),
@@ -121,76 +128,167 @@ export function useAutoMixDetection(
 
     const timer = setTimeout(() => {
       if (cancelled) return;
+      void (async () => {
+        // Lê a versão mais recente dos items (atualizada por itemsRef)
+        const items = itemsRef.current
+          .filter((item) => isAutoMixEligible(item, settings) && !!item.duration_ms && item.duration_ms > 0);
+        if (items.length === 0) return;
 
-      pendingRef.current = [];
+        const advanced = settings.mixType === 'advanced';
+        const misses: PlayableItem[] = [];
 
-      // Lê a versão mais recente dos items (atualizada por itemsRef)
-      const items = itemsRef.current;
-      const advanced = settings.mixType === 'advanced';
-
-      function runNext() {
-        while (runningRef.current < MAX_CONCURRENT && pendingRef.current.length > 0) {
-          const task = pendingRef.current.shift()!;
-          runningRef.current++;
-          task();
-        }
-      }
-
-      for (const item of items) {
-        if (!isAutoMixEligible(item, settings)) continue;
-        if (!item.duration_ms || item.duration_ms <= 0) continue;
-
-        const sensitivity = getSensitivity(item, settings);
-        const durationSec = item.duration_ms / 1000;
-        const mixType = advanced ? 'advanced' : 'basic';
-        const capturedItem = item;
-
-        pendingRef.current.push(() => {
-          if (cancelled) {
-            runningRef.current--;
-            runNext();
-            return;
-          }
-
-          invoke<RustMixPointResult>('compute_mix_point_cmd', {
-            path: capturedItem.path,
-            mediaId: capturedItem.media_id ?? capturedItem.path,
-            durationSec,
-            sensitivity,
-            mixType,
-          })
-            .then((result) => {
-              if (cancelled) return;
-
-              if (!result.detected || result.mix_time_sec <= 0) return;
-
-              const libraryMixTimeSec =
-                capturedItem.mix_end_ms !== null
-                  ? (capturedItem.duration_ms! - capturedItem.mix_end_ms) / 1000
-                  : 0;
-
-              if (result.mix_time_sec > libraryMixTimeSec + 0.1) {
-                const detectedMixEndMs = Math.round(
-                  Math.max(0, capturedItem.duration_ms! - result.mix_time_sec * 1000)
-                );
-                setOverrides((prev) => ({ ...prev, [capturedItem.id]: detectedMixEndMs }));
+        const runConcurrent = async (
+          list: PlayableItem[],
+          worker: (item: PlayableItem) => Promise<void>
+        ) => {
+          if (list.length === 0) return;
+          let cursor = 0;
+          const workers = Array.from(
+            { length: Math.min(MAX_CONCURRENT, list.length) },
+            async () => {
+              while (!cancelled) {
+                const idx = cursor++;
+                if (idx >= list.length) break;
+                await worker(list[idx]);
               }
-            })
-            .catch(() => {})
-            .finally(() => {
-              runningRef.current--;
-              runNext();
-            });
-        });
-      }
+            }
+          );
+          await Promise.all(workers);
+        };
 
-      runNext();
+        // Fase 1 (prioridade): consulta somente cache mixPoints.json.
+        await runConcurrent(items, async (capturedItem) => {
+          const sensitivity = getSensitivity(capturedItem, settings);
+          const mixType = advanced ? 'advanced' : 'basic';
+          try {
+            const cacheResult = await invoke<RustCachedMixPointResult>('get_cached_mix_point_cmd', {
+              path: capturedItem.path,
+              mediaId: capturedItem.media_id ?? capturedItem.path,
+              media_id: capturedItem.media_id ?? capturedItem.path,
+              sensitivity,
+              mixType,
+              mix_type: mixType,
+            });
+            if (cancelled) return;
+
+            const cacheHit = Boolean(cacheResult.cache_hit) || Boolean(cacheResult.cacheHit);
+            if (!cacheHit) {
+              misses.push(capturedItem);
+              return;
+            }
+
+            const mixTimeSec =
+              typeof cacheResult.mix_time_sec === 'number'
+                ? cacheResult.mix_time_sec
+                : (typeof cacheResult.mixTimeSec === 'number' ? cacheResult.mixTimeSec : 0);
+            if (mixTimeSec <= 0) {
+              if (AUTO_MIX_DEBUG) {
+                console.debug('[auto-mix] cache hit sem override', {
+                  id: capturedItem.id,
+                  mediaId: capturedItem.media_id,
+                  result: cacheResult,
+                });
+              }
+              return;
+            }
+
+            const detectedMixEndMs = Math.round(
+              Math.max(0, capturedItem.duration_ms! - mixTimeSec * 1000)
+            );
+            if (capturedItem.mix_end_ms !== detectedMixEndMs) {
+              if (AUTO_MIX_DEBUG) {
+                console.debug('[auto-mix] override aplicado via cache', {
+                  id: capturedItem.id,
+                  mediaId: capturedItem.media_id,
+                  mixTimeSec,
+                  previousMixEndMs: capturedItem.mix_end_ms,
+                  detectedMixEndMs,
+                });
+              }
+              setOverrides((prev) => ({ ...prev, [capturedItem.id]: detectedMixEndMs }));
+            }
+          } catch (err) {
+            if (!cancelled) {
+              console.warn('[auto-mix] get_cached_mix_point_cmd falhou', {
+                id: capturedItem.id,
+                mediaId: capturedItem.media_id,
+                path: capturedItem.path,
+                error: String(err),
+              });
+              // Se a leitura de cache falhou, ainda tenta na fase de detecção.
+              misses.push(capturedItem);
+            }
+          }
+        });
+
+        if (cancelled || misses.length === 0) return;
+
+        // Fase 2: varredura/decodificação só para quem não estava no cache.
+        await runConcurrent(misses, async (capturedItem) => {
+          const sensitivity = getSensitivity(capturedItem, settings);
+          const durationSec = capturedItem.duration_ms! / 1000;
+          const mixType = advanced ? 'advanced' : 'basic';
+          try {
+            const result = await invoke<RustMixPointResult>('compute_mix_point_cmd', {
+              path: capturedItem.path,
+              mediaId: capturedItem.media_id ?? capturedItem.path,
+              media_id: capturedItem.media_id ?? capturedItem.path,
+              durationSec,
+              duration_sec: durationSec,
+              sensitivity,
+              mixType,
+              mix_type: mixType,
+            });
+            if (cancelled) return;
+
+            const mixTimeSec =
+              typeof result.mix_time_sec === 'number'
+                ? result.mix_time_sec
+                : (typeof result.mixTimeSec === 'number' ? result.mixTimeSec : 0);
+            const detected = Boolean(result.detected) || mixTimeSec > 0;
+            if (!detected || mixTimeSec <= 0) {
+              if (AUTO_MIX_DEBUG) {
+                console.debug('[auto-mix] sem detecção aplicável', {
+                  id: capturedItem.id,
+                  mediaId: capturedItem.media_id,
+                  result,
+                });
+              }
+              return;
+            }
+
+            const detectedMixEndMs = Math.round(
+              Math.max(0, capturedItem.duration_ms! - mixTimeSec * 1000)
+            );
+            if (capturedItem.mix_end_ms !== detectedMixEndMs) {
+              if (AUTO_MIX_DEBUG) {
+                console.debug('[auto-mix] override aplicado via varredura', {
+                  id: capturedItem.id,
+                  mediaId: capturedItem.media_id,
+                  mixTimeSec,
+                  previousMixEndMs: capturedItem.mix_end_ms,
+                  detectedMixEndMs,
+                });
+              }
+              setOverrides((prev) => ({ ...prev, [capturedItem.id]: detectedMixEndMs }));
+            }
+          } catch (err) {
+            if (!cancelled) {
+              console.warn('[auto-mix] compute_mix_point_cmd falhou', {
+                id: capturedItem.id,
+                mediaId: capturedItem.media_id,
+                path: capturedItem.path,
+                error: String(err),
+              });
+            }
+          }
+        });
+      })();
     }, DETECTION_DEBOUNCE_MS);
 
     return () => {
       cancelled = true;
       clearTimeout(timer);
-      pendingRef.current = [];
     };
   // itemsKey é a string dos paths — só muda quando o conjunto de arquivos muda de verdade
   // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -59,6 +59,7 @@ pub fn run() {
             commands::schedule::get_schedule_selection,
             commands::settings::list_directories,
             commands::mix::compute_mix_point_cmd,
+            commands::mix::get_cached_mix_point_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

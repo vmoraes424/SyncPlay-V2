@@ -91,15 +91,26 @@ pub fn start_audio_engine() -> (mpsc::Sender<AudioCommand>, Arc<Mutex<PlaybackSt
                     AudioCommand::SetQueue(new_queue) => {
                         queue = new_queue;
                         // Realinha índices após editar a fila (inserir/remover itens), sem recriar o sink.
+                        // Também atualiza o payload do item ativo/background para refletir
+                        // mudanças de mix_end_ms vindas do auto mix em tempo real.
                         if let Some(track) = &mut current_track {
-                            if let Some(new_idx) = queue.iter().position(|i| i.id == track.item.id)
+                            if let Some((new_idx, new_item)) = queue
+                                .iter()
+                                .enumerate()
+                                .find(|(_, i)| i.id == track.item.id)
                             {
                                 track.index = new_idx;
+                                track.item = new_item.clone();
                             }
                         }
                         for bt in &mut background_tracks {
-                            if let Some(new_idx) = queue.iter().position(|i| i.id == bt.item.id) {
+                            if let Some((new_idx, new_item)) = queue
+                                .iter()
+                                .enumerate()
+                                .find(|(_, i)| i.id == bt.item.id)
+                            {
                                 bt.index = new_idx;
+                                bt.item = new_item.clone();
                             }
                         }
                     }

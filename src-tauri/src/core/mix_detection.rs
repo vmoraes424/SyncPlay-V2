@@ -63,6 +63,13 @@ pub struct MixPointResult {
     pub detected: bool,
 }
 
+#[derive(Debug, Serialize)]
+pub struct CachedMixPointResult {
+    pub mix_time_sec: f64,
+    pub detected: bool,
+    pub cache_hit: bool,
+}
+
 // ─── Utilitários de chave / CRC ───────────────────────────────────────────────
 
 fn cache_key(media_id: &str) -> String {
@@ -146,6 +153,39 @@ pub fn compute_mix_point(
     persist_cache(&snapshot);
 
     Ok(result)
+}
+
+/// Consulta apenas o cache (mixPoints.json em memória), sem decodificar áudio.
+///
+/// Retorna `cache_hit=true` quando encontrou entrada para o `media_id` com
+/// CRC/hash, sensibilidade e tipo compatíveis.
+pub fn get_cached_mix_point(
+    path: &str,
+    media_id: &str,
+    sensitivity_pct: f64,
+    advanced: bool,
+) -> CachedMixPointResult {
+    let key = cache_key(media_id);
+    let sens_str = sensitivity_str(sensitivity_pct);
+    let type_str = if advanced { "advanced" } else { "basic" };
+    let crc = file_pseudo_crc(path);
+
+    let cache = get_mem_cache().lock().unwrap();
+    if let Some(entry) = cache.get(&key) {
+        if entry.crc32 == crc && entry.sensitivity == sens_str && entry.mix_type == type_str {
+            return CachedMixPointResult {
+                mix_time_sec: entry.mix_time,
+                detected: entry.mix_time > 0.0,
+                cache_hit: true,
+            };
+        }
+    }
+
+    CachedMixPointResult {
+        mix_time_sec: 0.0,
+        detected: false,
+        cache_hit: false,
+    }
 }
 
 // ─── Algoritmo de detecção — streaming sem Vec grande ─────────────────────────

@@ -1,4 +1,4 @@
-use crate::core::mix_detection::{compute_mix_point, MixPointResult};
+use crate::core::mix_detection::{compute_mix_point, get_cached_mix_point, CachedMixPointResult, MixPointResult};
 use crate::error::AppResult;
 
 /// Calcula (ou recupera do cache) o ponto de mix automático de um arquivo de áudio.
@@ -22,4 +22,18 @@ pub async fn compute_mix_point_cmd(
     tokio::task::spawn_blocking(move || compute_mix_point(&path, &media_id, duration_sec, sensitivity, advanced))
         .await
         .map_err(|e| crate::error::AppError::AudioDecode(e.to_string()))?
+}
+
+/// Consulta apenas o cache `mixPoints.json` (sem varredura de áudio).
+#[tauri::command]
+pub async fn get_cached_mix_point_cmd(
+    path: String,
+    media_id: String,
+    sensitivity: f64,
+    mix_type: String,
+) -> AppResult<CachedMixPointResult> {
+    let advanced = mix_type.to_lowercase().contains("adv") || mix_type == "Avançada";
+    tokio::task::spawn_blocking(move || get_cached_mix_point(&path, &media_id, sensitivity, advanced))
+        .await
+        .map_err(|e| crate::error::AppError::AudioDecode(e.to_string()))
 }

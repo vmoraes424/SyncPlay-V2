@@ -500,17 +500,63 @@ function App() {
   const discardAnchorRef = useRef<string | null>(null);
   const lastPlaybackDiscardAnchorRef = useRef<string | null>(null);
   const playlistItemRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const autoMixScannedIdsRef = useRef<Set<string>>(new Set());
+  const [autoMixScanItems, setAutoMixScanItems] = useState<PlayableItem[]>([]);
 
-  // Itens da playlist completa (sem filtragem de descarte) para o hook de detecção.
-  // Limita ao lookahead para não processar centenas de arquivos de dias futuros.
-  const AUTO_MIX_LOOKAHEAD = 40;
+  // Catálogo completo de itens tocáveis (base para mapear a janela visível).
   const allPlayableItems = useMemo(
-    () => (data ? buildPlaylistRuntimeItems(data, mixConfig).playableItems.slice(0, AUTO_MIX_LOOKAHEAD) : []),
+    () => (data ? buildPlaylistRuntimeItems(data, mixConfig).playableItems : []),
     [data, mixConfig]
   );
 
-  // Detecção automática de ponto de mix por sensibilidade
-  const autoMixOverrides = useAutoMixDetection(allPlayableItems, autoMixSettings);
+  // IDs realmente visíveis na playlist cortada da UI.
+  const visiblePlayableItemIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const { plKey, blocks } of visiblePlaylistGroups) {
+      for (const [blockKey, block] of blocks) {
+        const mediaMap = blockMediaRecord(block);
+        for (const musicKey of Object.keys(mediaMap)) {
+          ids.add(`${plKey}-${blockKey}-${musicKey}`);
+        }
+      }
+    }
+    return ids;
+  }, [visiblePlaylistGroups]);
+
+  // Itens visíveis no momento (somente bloco(s) carregados na UI).
+  const visiblePlayableItems = useMemo(
+    () => allPlayableItems.filter((item) => visiblePlayableItemIds.has(item.id)),
+    [allPlayableItems, visiblePlayableItemIds]
+  );
+
+  // Modo incremental: detecta apenas os itens recém-visíveis (ex.: ao clicar
+  // em "Carregar o próximo bloco"), evitando revarredura pesada contínua.
+  useEffect(() => {
+    if (!autoMixSettings) {
+      autoMixScannedIdsRef.current.clear();
+      setAutoMixScanItems([]);
+      return;
+    }
+
+    const visibleIds = new Set(visiblePlayableItems.map((item) => item.id));
+    for (const scannedId of autoMixScannedIdsRef.current) {
+      if (!visibleIds.has(scannedId)) autoMixScannedIdsRef.current.delete(scannedId);
+    }
+
+    const newVisibleItems = visiblePlayableItems.filter(
+      (item) => !autoMixScannedIdsRef.current.has(item.id)
+    );
+    if (newVisibleItems.length === 0) {
+      setAutoMixScanItems([]);
+      return;
+    }
+
+    newVisibleItems.forEach((item) => autoMixScannedIdsRef.current.add(item.id));
+    setAutoMixScanItems(newVisibleItems);
+  }, [autoMixSettings, visiblePlayableItems]);
+
+  // Detecção automática de ponto de mix por sensibilidade (somente itens novos/visíveis).
+  const autoMixOverrides = useAutoMixDetection(autoMixScanItems, autoMixSettings);
 
   // Aplica overrides de mix_end_ms calculados automaticamente sobre uma fila de itens
   const applyMixOverrides = useCallback(
