@@ -10,7 +10,17 @@ pub const CHANNEL_LINEIN: &str = "linein";
 /// Buses de saída
 pub const BUS_MASTER: &str = "master";
 pub const BUS_MONITOR: &str = "monitor";
+pub const BUS_RETORNO: &str = "retorno";
+/// Legado (persistência antiga / chamadas `"fone"`)
 pub const BUS_FONE: &str = "fone";
+
+/// IDs de canal conhecidos (novos canais = nova entrada aqui + UI).
+pub const DEFAULT_MIXER_CHANNELS: &[&str] = &[
+    CHANNEL_PLAYLIST,
+    CHANNEL_VEM,
+    CHANNEL_MIC,
+    CHANNEL_LINEIN,
+];
 
 // ---------------------------------------------------------------------------
 // Tipos básicos
@@ -36,7 +46,10 @@ impl Default for ChannelGain {
 pub struct ChannelRouting {
     pub master: bool,
     pub monitor: bool,
-    pub fone: bool,
+    /// Retorno (legado JSON: `fone`)
+    #[serde(alias = "fone")]
+    pub retorno: bool,
+    /// Arm geral: se `false`, não vai ao DAC; VU segue o fader (ganho aplicado antes do medidor).
     pub out: bool,
     pub out_device_id: Option<String>,
 }
@@ -45,8 +58,8 @@ impl Default for ChannelRouting {
     fn default() -> Self {
         Self {
             master: true,
-            monitor: false,
-            fone: false,
+            monitor: true,
+            retorno: true,
             out: false,
             out_device_id: None,
         }
@@ -82,7 +95,8 @@ pub struct MixerRouting {
     pub routing: HashMap<String, ChannelRouting>,
     pub master: BusConfig,
     pub monitor: BusConfig,
-    pub fone: BusConfig,
+    #[serde(alias = "fone")]
+    pub retorno: BusConfig,
 }
 
 impl Default for MixerRouting {
@@ -97,58 +111,31 @@ impl Default for MixerRouting {
         .map(|k| (k.to_string(), ChannelGain::default()))
         .collect();
 
-        let routing = [
-            (
-                CHANNEL_PLAYLIST,
-                ChannelRouting {
-                    master: true,
-                    monitor: true,
-                    fone: false,
-                    out: false,
-                    out_device_id: None,
-                },
-            ),
-            (
-                CHANNEL_VEM,
-                ChannelRouting {
-                    master: true,
-                    monitor: false,
-                    fone: false,
-                    out: false,
-                    out_device_id: None,
-                },
-            ),
-            (
-                CHANNEL_MIC,
-                ChannelRouting {
-                    master: true,
-                    monitor: false,
-                    fone: true,
-                    out: false,
-                    out_device_id: None,
-                },
-            ),
-            (
-                CHANNEL_LINEIN,
-                ChannelRouting {
-                    master: true,
-                    monitor: false,
-                    fone: false,
-                    out: false,
-                    out_device_id: None,
-                },
-            ),
-        ]
-        .iter()
-        .map(|(k, v)| (k.to_string(), v.clone()))
-        .collect();
+        let routing = DEFAULT_MIXER_CHANNELS
+            .iter()
+            .map(|&k| (k.to_string(), ChannelRouting::default()))
+            .collect();
 
         Self {
             channels,
             routing,
             master: BusConfig::default(),
             monitor: BusConfig::default(),
-            fone: BusConfig::default(),
+            retorno: BusConfig::default(),
+        }
+    }
+}
+
+impl MixerRouting {
+    /// Garante entradas para todos os canais padrão (extensível quando novos IDs forem adicionados).
+    pub fn merge_missing_defaults(&mut self) {
+        for &id in DEFAULT_MIXER_CHANNELS {
+            self.channels
+                .entry(id.to_string())
+                .or_insert_with(ChannelGain::default);
+            self.routing
+                .entry(id.to_string())
+                .or_insert_with(ChannelRouting::default);
         }
     }
 }
@@ -178,7 +165,8 @@ pub struct MixerTickPayload {
     pub routing: HashMap<String, ChannelRouting>,
     pub master: BusConfig,
     pub monitor: BusConfig,
-    pub fone: BusConfig,
+    #[serde(alias = "fone")]
+    pub retorno: BusConfig,
 }
 
 // ---------------------------------------------------------------------------

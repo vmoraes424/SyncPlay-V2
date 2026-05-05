@@ -1,16 +1,35 @@
-use crate::core::mixer::VuMeterSource;
+use crate::core::mixer::{
+    channel_audio_gains, AtomicF32, DynamicGainSource, VuMeterSource,
+};
 use crate::models::audio::{AudioCommand, AudioItem, PlaybackState};
 use crate::models::mixer::{MixerRouting, VuLevel, CHANNEL_PLAYLIST};
+use std::sync::Arc;
 use rodio::{Decoder, OutputStream, Sink, Source};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
 const MANUAL_CROSSFADE_OUT_MS: u64 = 3000;
 const MANUAL_CROSSFADE_IN_MS: u64 = 1500;
+
+/// Com o sink **pausado**, o rodio não consome samples → `VuMeterSource` não roda e picos/RMS
+/// ficariam congelados no último valor. Decaimos aqui (e zeramos explícitos em `Pause`).
+fn decay_playlist_vu(vu: &mut VuLevel) {
+    vu.rms_left = (vu.rms_left * 0.85).max(0.0);
+    vu.rms_right = (vu.rms_right * 0.85).max(0.0);
+    vu.peak_left = (vu.peak_left * 0.97).max(0.0);
+    vu.peak_right = (vu.peak_right * 0.97).max(0.0);
+    if vu.rms_left < 0.0001
+        && vu.rms_right < 0.0001
+        && vu.peak_left < 0.0001
+        && vu.peak_right < 0.0001
+    {
+        *vu = VuLevel::default();
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Faixa ativa
@@ -76,30 +95,16 @@ fn open_track(
     item: &AudioItem,
     stream_handle: &rodio::OutputStreamHandle,
     vu: Arc<Mutex<VuLevel>>,
+    strip_gain: Arc<AtomicF32>,
 ) -> Option<Sink> {
     let file = File::open(&item.path).ok()?;
     let decoder = Decoder::new(BufReader::new(file)).ok()?;
     let f32_src = decoder.convert_samples::<f32>();
-    let vu_src = VuMeterSource::new(f32_src, vu);
+    let gained = DynamicGainSource::new(f32_src, strip_gain);
+    let vu_src = VuMeterSource::new(gained, vu);
     let sink = Sink::try_new(stream_handle).ok()?;
     sink.append(vu_src);
     Some(sink)
-}
-
-// ---------------------------------------------------------------------------
-// Calcula o fator de mixer para o canal playlist (um lock por tick)
-// ---------------------------------------------------------------------------
-
-fn mixer_factor(routing: &MixerRouting) -> f32 {
-    let ch = routing
-        .channels
-        .get(CHANNEL_PLAYLIST)
-        .cloned()
-        .unwrap_or_default();
-    if ch.muted || routing.master.muted {
-        return 0.0;
-    }
-    ch.value * routing.master.gain
 }
 
 // ---------------------------------------------------------------------------
@@ -126,16 +131,19 @@ pub fn start_audio_engine(
 
     thread::spawn(move || {
         let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+        let playlist_strip_gain = Arc::new(AtomicF32::new(1.0));
         let mut queue: Vec<AudioItem> = Vec::new();
         let mut current_track: Option<ActiveTrack> = None;
         let mut background_tracks: Vec<ActiveTrack> = Vec::new();
 
         loop {
-            // Lê ganhos do mixer UMA VEZ por tick para evitar múltiplos locks.
-            let mfactor = {
+            // Fader/mute → antes do VU; OUT + rotas + buses → só no volume do sink (DAC).
+            let (strip, playback_path) = {
                 let r = mixer_routing.lock().unwrap();
-                mixer_factor(&r)
+                channel_audio_gains(&r, CHANNEL_PLAYLIST)
             };
+            playlist_strip_gain.store(strip);
+            let mfactor = playback_path;
 
             let mut skip_requested = false;
 
@@ -171,9 +179,12 @@ pub fn start_audio_engine(
                     AudioCommand::PlayIndex(idx) => {
                         if idx < queue.len() {
                             let item = queue[idx].clone();
-                            if let Some(sink) =
-                                open_track(&item, &stream_handle, playlist_vu.clone())
-                            {
+                            if let Some(sink) = open_track(
+                                &item,
+                                &stream_handle,
+                                playlist_vu.clone(),
+                                playlist_strip_gain.clone(),
+                            ) {
                                 let mut crossfade = false;
                                 if let Some(mut old_track) = current_track.take() {
                                     crossfade = old_track.is_playing;
@@ -227,6 +238,9 @@ pub fn start_audio_engine(
                         }
                         for bt in &mut background_tracks {
                             bt.pause();
+                        }
+                        if let Ok(mut vu) = playlist_vu.lock() {
+                            *vu = VuLevel::default();
                         }
                     }
 
@@ -322,17 +336,16 @@ pub fn start_audio_engine(
                     st.position_ms = pos_ms;
                     st.duration_ms = dur_ms;
                 }
+
+                if !track.is_playing {
+                    if let Ok(mut vu) = playlist_vu.lock() {
+                        decay_playlist_vu(&mut vu);
+                    }
+                }
             } else {
                 // Sem faixa: decai o VU
-                {
-                    let mut vu = playlist_vu.lock().unwrap();
-                    vu.rms_left = (vu.rms_left * 0.85).max(0.0);
-                    vu.rms_right = (vu.rms_right * 0.85).max(0.0);
-                    vu.peak_left = (vu.peak_left * 0.97).max(0.0);
-                    vu.peak_right = (vu.peak_right * 0.97).max(0.0);
-                    if vu.rms_left < 0.0001 {
-                        *vu = VuLevel::default();
-                    }
+                if let Ok(mut vu) = playlist_vu.lock() {
+                    decay_playlist_vu(&mut vu);
                 }
                 if let Ok(mut st) = state_clone.lock() {
                     st.is_playing = false;
@@ -354,7 +367,12 @@ pub fn start_audio_engine(
             if let Some(next_idx) = auto_play_next {
                 if next_idx < queue.len() {
                     let item = queue[next_idx].clone();
-                    if let Some(sink) = open_track(&item, &stream_handle, playlist_vu.clone()) {
+                    if let Some(sink) = open_track(
+                        &item,
+                        &stream_handle,
+                        playlist_vu.clone(),
+                        playlist_strip_gain.clone(),
+                    ) {
                         log_debug(&format!("Auto-play next={}", next_idx));
 
                         if let Some(mut old_track) = current_track.take() {

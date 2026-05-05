@@ -61,7 +61,7 @@ pub fn run() {
                         routing: routing.routing,
                         master: routing.master,
                         monitor: routing.monitor,
-                        fone: routing.fone,
+                        retorno: routing.retorno,
                     };
 
                     let _ = app_handle.emit("mixer:tick", payload);
@@ -99,7 +99,7 @@ pub fn run() {
             commands::mixer::set_channel_muted,
             commands::mixer::toggle_master_route,
             commands::mixer::toggle_monitor_route,
-            commands::mixer::toggle_fone_route,
+            commands::mixer::toggle_retorno_route,
             commands::mixer::toggle_out_route,
             commands::mixer::set_out_device,
             commands::mixer::set_bus_gain,

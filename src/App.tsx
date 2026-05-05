@@ -258,13 +258,18 @@ function buildPlaylistRuntimeItems(data: SyncPlayData, mixConfig: MixConfig | nu
           });
         }
 
+        const durationFallbackSec =
+          typeof music.duration === 'number' && Number.isFinite(music.duration)
+            ? music.duration
+            : null;
+
         return {
           id: uniqueId,
           title: music.text || `Mídia: ${music.type ?? musicKey}`,
           mediaType: music.type ?? '',
           path: playPath,
           rawStartSec: rawStartSec(music),
-          durationSec: duration_ms !== null ? duration_ms / 1000 : music.duration ?? null,
+          durationSec: duration_ms !== null ? duration_ms / 1000 : durationFallbackSec,
           mixOutSec: fade_duration_ms !== null ? fade_duration_ms / 1000 : null,
           disabled: legacyBool(music.disabled),
           discarded: legacyBool(music.discarded),

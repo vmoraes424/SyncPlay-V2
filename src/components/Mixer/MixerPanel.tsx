@@ -14,7 +14,7 @@ export function MixerPanel() {
     setChannelMuted,
     toggleMasterRoute,
     toggleMonitorRoute,
-    toggleFoneRoute,
+    toggleRetornoRoute,
     toggleOutRoute,
     setBusGain,
     setBusMuted,
@@ -41,7 +41,7 @@ export function MixerPanel() {
               onSetMuted={(v) => setChannelMuted(ch, v)}
               onToggleMaster={() => toggleMasterRoute(ch)}
               onToggleMonitor={() => toggleMonitorRoute(ch)}
-              onToggleFone={() => toggleFoneRoute(ch)}
+              onToggleRetorno={() => toggleRetornoRoute(ch)}
               onToggleOut={() => toggleOutRoute(ch)}
             />
           ))}

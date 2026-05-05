@@ -3,13 +3,22 @@ use crate::models::mixer::{AudioDevice, BusConfig, ChannelGain, ChannelRouting, 
 use crate::state::AppState;
 use tauri::State;
 
+fn normalize_bus_id(bus: &str) -> &str {
+    match bus {
+        "fone" => "retorno",
+        b => b,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Estado completo
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
 pub fn get_mixer_state(state: State<AppState>) -> MixerRouting {
-    state.mixer_routing.lock().unwrap().clone()
+    let mut r = state.mixer_routing.lock().unwrap();
+    r.merge_missing_defaults();
+    r.clone()
 }
 
 // ---------------------------------------------------------------------------
@@ -71,14 +80,14 @@ pub fn toggle_monitor_route(channel: String, state: State<AppState>) -> bool {
 }
 
 #[tauri::command]
-pub fn toggle_fone_route(channel: String, state: State<AppState>) -> bool {
+pub fn toggle_retorno_route(channel: String, state: State<AppState>) -> bool {
     let mut r = state.mixer_routing.lock().unwrap();
     let route = r
         .routing
         .entry(channel)
         .or_insert_with(ChannelRouting::default);
-    route.fone = !route.fone;
-    let new_val = route.fone;
+    route.retorno = !route.retorno;
+    let new_val = route.retorno;
     let snap = r.clone();
     drop(r);
     save_mixer_routing(&snap);
@@ -119,12 +128,13 @@ pub fn set_out_device(channel: String, device_id: Option<String>, state: State<A
 
 #[tauri::command]
 pub fn set_bus_gain(bus: String, value: f32, state: State<AppState>) {
+    let bus = normalize_bus_id(bus.as_str());
     let mut r = state.mixer_routing.lock().unwrap();
     let gain = value.clamp(0.0, 1.0);
-    match bus.as_str() {
+    match bus {
         "master" => r.master.gain = gain,
         "monitor" => r.monitor.gain = gain,
-        "fone" => r.fone.gain = gain,
+        "retorno" => r.retorno.gain = gain,
         _ => return,
     }
     let snap = r.clone();
@@ -134,11 +144,12 @@ pub fn set_bus_gain(bus: String, value: f32, state: State<AppState>) {
 
 #[tauri::command]
 pub fn set_bus_muted(bus: String, muted: bool, state: State<AppState>) {
+    let bus = normalize_bus_id(bus.as_str());
     let mut r = state.mixer_routing.lock().unwrap();
-    match bus.as_str() {
+    match bus {
         "master" => r.master.muted = muted,
         "monitor" => r.monitor.muted = muted,
-        "fone" => r.fone.muted = muted,
+        "retorno" => r.retorno.muted = muted,
         _ => return,
     }
     let snap = r.clone();
@@ -148,11 +159,12 @@ pub fn set_bus_muted(bus: String, muted: bool, state: State<AppState>) {
 
 #[tauri::command]
 pub fn set_bus_device(bus: String, device_id: Option<String>, state: State<AppState>) {
+    let bus = normalize_bus_id(bus.as_str());
     let mut r = state.mixer_routing.lock().unwrap();
-    let bus_cfg: &mut BusConfig = match bus.as_str() {
+    let bus_cfg: &mut BusConfig = match bus {
         "master" => &mut r.master,
         "monitor" => &mut r.monitor,
-        "fone" => &mut r.fone,
+        "retorno" => &mut r.retorno,
         _ => return,
     };
     bus_cfg.device_id = device_id;
@@ -163,11 +175,12 @@ pub fn set_bus_device(bus: String, device_id: Option<String>, state: State<AppSt
 
 #[tauri::command]
 pub fn get_bus_config(bus: String, state: State<AppState>) -> Option<BusConfig> {
+    let bus = normalize_bus_id(bus.as_str());
     let r = state.mixer_routing.lock().unwrap();
-    match bus.as_str() {
+    match bus {
         "master" => Some(r.master.clone()),
         "monitor" => Some(r.monitor.clone()),
-        "fone" => Some(r.fone.clone()),
+        "retorno" => Some(r.retorno.clone()),
         _ => None,
     }
 }
@@ -187,7 +200,8 @@ pub fn list_audio_devices_cmd() -> Vec<AudioDevice> {
 
 #[tauri::command]
 pub fn reset_mixer_routing(state: State<AppState>) {
-    let default = MixerRouting::default();
+    let mut default = MixerRouting::default();
+    default.merge_missing_defaults();
     save_mixer_routing(&default);
     *state.mixer_routing.lock().unwrap() = default;
 }

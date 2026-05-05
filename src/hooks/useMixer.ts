@@ -14,7 +14,7 @@ export interface ChannelGain {
 export interface ChannelRouting {
   master: boolean;
   monitor: boolean;
-  fone: boolean;
+  retorno: boolean;
   out: boolean;
   out_device_id: string | null;
 }
@@ -37,7 +37,7 @@ export interface MixerRouting {
   routing: Record<string, ChannelRouting>;
   master: BusConfig;
   monitor: BusConfig;
-  fone: BusConfig;
+  retorno: BusConfig;
 }
 
 export interface MixerTickPayload extends MixerRouting {
@@ -57,8 +57,8 @@ const DEFAULT_BUS: BusConfig = { gain: 1, muted: false, device_id: null };
 const DEFAULT_CHANNEL: ChannelGain = { value: 1, muted: false };
 const DEFAULT_ROUTING: ChannelRouting = {
   master: true,
-  monitor: false,
-  fone: false,
+  monitor: true,
+  retorno: true,
   out: false,
   out_device_id: null,
 };
@@ -70,7 +70,7 @@ const DEFAULT_VU: VuLevel = {
 };
 
 export const CHANNELS = ["playlist", "vem", "mic", "linein"] as const;
-export const BUSES = ["master", "monitor", "fone"] as const;
+export const BUSES = ["master", "monitor", "retorno"] as const;
 
 export type ChannelId = (typeof CHANNELS)[number];
 export type BusId = (typeof BUSES)[number];
@@ -85,7 +85,7 @@ export function useMixer() {
     routing: Object.fromEntries(CHANNELS.map((c) => [c, { ...DEFAULT_ROUTING }])),
     master: { ...DEFAULT_BUS },
     monitor: { ...DEFAULT_BUS },
-    fone: { ...DEFAULT_BUS },
+    retorno: { ...DEFAULT_BUS },
   });
 
   const [vuLevels, setVuLevels] = useState<Record<string, VuLevel>>(
@@ -113,9 +113,14 @@ export function useMixer() {
 
     listen<MixerTickPayload>("mixer:tick", (event) => {
       if (cancelled) return;
-      const { levels, ...rest } = event.payload;
+      const raw = event.payload as MixerTickPayload & { fone?: BusConfig };
+      const { levels, ...rest } = raw;
+      const merged: MixerRouting = {
+        ...rest,
+        retorno: rest.retorno ?? raw.fone ?? { ...DEFAULT_BUS },
+      };
       setVuLevels((prev) => ({ ...prev, ...levels }));
-      setRouting(rest);
+      setRouting(merged);
     }).then((unlisten) => {
       if (cancelled) {
         unlisten();
@@ -151,8 +156,8 @@ export function useMixer() {
     invoke("toggle_monitor_route", { channel }).catch(console.error);
   }, []);
 
-  const toggleFoneRoute = useCallback((channel: string) => {
-    invoke("toggle_fone_route", { channel }).catch(console.error);
+  const toggleRetornoRoute = useCallback((channel: string) => {
+    invoke("toggle_retorno_route", { channel }).catch(console.error);
   }, []);
 
   const toggleOutRoute = useCallback((channel: string) => {
@@ -192,7 +197,7 @@ export function useMixer() {
   );
 
   const getBusConfig = useCallback(
-    (bus: "master" | "monitor" | "fone"): BusConfig =>
+    (bus: "master" | "monitor" | "retorno"): BusConfig =>
       routing[bus] ?? { ...DEFAULT_BUS },
     [routing]
   );
@@ -213,7 +218,7 @@ export function useMixer() {
     setChannelMuted,
     toggleMasterRoute,
     toggleMonitorRoute,
-    toggleFoneRoute,
+    toggleRetornoRoute,
     toggleOutRoute,
     // Bus
     getBusConfig,

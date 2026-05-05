@@ -7,23 +7,23 @@ import "./BusStrip.css";
 const BUS_LABELS: Record<string, string> = {
   master: "Master",
   monitor: "Monitor",
-  fone: "Retorno",
+  retorno: "Retorno",
 };
 
 const BUS_COLORS: Record<string, string> = {
   master: "#4caf50",
   monitor: "#ff9800",
-  fone: "#80cbc4",
+  retorno: "#80cbc4",
 };
 
 const BUS_BG: Record<string, string> = {
   master: "#1a2e1a",
   monitor: "#2e1e0a",
-  fone: "#0e2020",
+  retorno: "#0e2020",
 };
 
 interface Props {
-  busId: "master" | "monitor" | "fone";
+  busId: "master" | "monitor" | "retorno";
   config: BusConfig;
   vuLevel: VuLevel;
   devices: AudioDevice[];
@@ -77,7 +77,7 @@ export function BusStrip({
 
       {/* VU + Fader */}
       <div className="bus-strip__av">
-        <VuMeter level={vuLevel} height={120} width={30} barWidth={12} />
+        <VuMeter level={vuLevel} height={120} barWidth={12} gap={1} />
         <Fader
           value={config.gain}
           onChange={onSetGain}
