@@ -89,10 +89,6 @@ export function Fader({
         onPointerUp={handlePointerUp}
       >
         {/* Fill */}
-        {/* <div
-          className="fader-fill"
-          style={{ height: `${pct}%`, background: color, opacity: disabled ? 0.4 : 1 }}
-        /> */}
         {/* Thumb */}
         <div
           className={`fader-thumb ${dragging ? "dragging" : ""}`}

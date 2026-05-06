@@ -177,7 +177,7 @@ export function useMixer() {
   }, []);
 
   const setBusDevice = useCallback((bus: string, deviceId: string | null) => {
-    invoke("set_bus_device", { bus, device_id: deviceId }).catch(console.error);
+    invoke("set_bus_device", { bus, deviceId }).catch(console.error);
   }, []);
 
   // ------------------------------------------------------------------
