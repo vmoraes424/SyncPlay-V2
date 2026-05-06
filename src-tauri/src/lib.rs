@@ -1,76 +1,56 @@
-mod commands;
-mod core;
-mod error;
-mod models;
-mod state;
+use tauri::Manager;
+use std::time::Duration;
+use std::thread;
 
-use models::window::WindowStateFile;
-use std::fs;
-use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize, Runtime, WebviewWindow};
-
-const WINDOW_STATE_PATH: &str = "C:/SyncPlay/Configs/window-state.json";
-
-fn apply_saved_window_state<R: Runtime>(win: &WebviewWindow<R>) {
-    let Ok(content) = fs::read_to_string(WINDOW_STATE_PATH) else {
-        return;
-    };
-    let Ok(state) = serde_json::from_str::<WindowStateFile>(&content) else {
-        return;
-    };
-
-    if state.is_full_screen {
-        let _ = win.set_fullscreen(true);
-        return;
-    }
-
-    let _ = win.set_size(PhysicalSize::new(state.width, state.height));
-    let _ = win.set_position(PhysicalPosition::new(state.x, state.y));
-    if state.is_maximized {
-        let _ = win.maximize();
-    }
-}
+// Certifique-se de importar seus comandos corretamente aqui no topo
+// use crate::commands::{audio::*, mixer::*};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 1. Inicia o Estado Global com a nova arquitetura do DigitalMixer
+    let app_state = crate::state::AppState::new();
+
     tauri::Builder::default()
-        .manage(state::AppState::new())
+        // Registra o estado para ser usado nos Comandos
+        .manage(app_state)
         .setup(|app| {
-            if let Some(win) = app.get_webview_window("main") {
-                apply_saved_window_state(&win);
-                let _ = win.show();
-            }
-
-            // Task que emite níveis VU ao frontend a ~30 fps
             let app_handle = app.handle().clone();
-            let app_state = app.state::<state::AppState>();
-            let vu_snapshot = app_state.vu_snapshot.clone();
-            let mixer_routing = app_state.mixer_routing.clone();
+            
+            // Pega uma referência clonada do Mixer para a thread paralela
+            let state = app_handle.state::<crate::state::AppState>();
+            let mixer_clone = state.mixer.clone();
 
-            tauri::async_runtime::spawn(async move {
-                let mut interval =
-                    tokio::time::interval(std::time::Duration::from_millis(33));
+            // Thread Levíssima de Interface (UI) - 30 FPS
+            thread::spawn(move || {
                 loop {
-                    interval.tick().await;
+                    if let Ok(mixer) = mixer_clone.try_lock() {
+                        // Monta o payload EXATAMENTE no formato da interface MixerTickPayload do TypeScript
+                        let payload = serde_json::json!({
+                            "channels": mixer.routing.channels,
+                            "routing": mixer.routing.routing,
+                            "master": mixer.routing.master,
+                            "monitor": mixer.routing.monitor,
+                            "retorno": mixer.routing.retorno,
+                            "levels": {
+                                "playlist": mixer.playlist_vu,
+                                "master": mixer.master_vu,
+                                // Envia zerado para Monitor e Retorno por enquanto, para não quebrar a UI
+                                "monitor": { "rms_left": 0.0, "rms_right": 0.0, "peak_left": 0.0, "peak_right": 0.0 },
+                                "retorno": { "rms_left": 0.0, "rms_right": 0.0, "peak_left": 0.0, "peak_right": 0.0 }
+                            }
+                        });
 
-                    let levels = vu_snapshot.lock().unwrap().clone();
-                    let routing = mixer_routing.lock().unwrap().clone();
-
-                    let payload = models::mixer::MixerTickPayload {
-                        levels,
-                        channels: routing.channels,
-                        routing: routing.routing,
-                        master: routing.master,
-                        monitor: routing.monitor,
-                        retorno: routing.retorno,
-                    };
-
-                    let _ = app_handle.emit("mixer:tick", payload);
+                        // No Tauri v2, emit envia o evento para o frontend
+                        let _ = app_handle.emit("mixer:tick", payload);
+                    }
+                    
+                    // Dorme 33ms (~30 FPS), desafogando o React e a Placa de Vídeo
+                    thread::sleep(Duration::from_millis(33));
                 }
             });
 
             Ok(())
         })
-        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             // Settings
             commands::settings::read_playlist,
@@ -110,5 +90,5 @@ pub fn run() {
             commands::mixer::reset_mixer_routing,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .expect("Erro ao rodar a aplicação Tauri");
 }

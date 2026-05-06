@@ -3,7 +3,7 @@ import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 // ---------------------------------------------------------------------------
-// Tipos (espelham os modelos Rust)
+// Tipos
 // ---------------------------------------------------------------------------
 
 export interface ChannelGain {
@@ -93,8 +93,6 @@ export function useMixer() {
   );
 
   const [devices, setDevices] = useState<AudioDevice[]>([]);
-
-  // Ref para evitar re-subscribe a cada render
   const unlistenRef = useRef<UnlistenFn | null>(null);
 
   // ------------------------------------------------------------------
@@ -106,19 +104,24 @@ export function useMixer() {
   }, []);
 
   // ------------------------------------------------------------------
-  // Escuta evento mixer:tick com VU levels + estado
+  // Escuta evento mixer:tick com a thread de 30FPS do Rust
   // ------------------------------------------------------------------
   useEffect(() => {
     let cancelled = false;
 
     listen<MixerTickPayload>("mixer:tick", (event) => {
       if (cancelled) return;
-      const raw = event.payload as MixerTickPayload & { fone?: BusConfig };
-      const { levels, ...rest } = raw;
+      
+      const { levels, channels, routing: newRouting, master, monitor, retorno } = event.payload;
+      
       const merged: MixerRouting = {
-        ...rest,
-        retorno: rest.retorno ?? raw.fone ?? { ...DEFAULT_BUS },
+        channels,
+        routing: newRouting,
+        master,
+        monitor,
+        retorno: retorno ?? { ...DEFAULT_BUS },
       };
+
       setVuLevels((prev) => ({ ...prev, ...levels }));
       setRouting(merged);
     }).then((unlisten) => {
@@ -131,8 +134,10 @@ export function useMixer() {
 
     return () => {
       cancelled = true;
-      unlistenRef.current?.();
-      unlistenRef.current = null;
+      if (unlistenRef.current) {
+        unlistenRef.current();
+        unlistenRef.current = null;
+      }
     };
   }, []);
 
@@ -211,7 +216,6 @@ export function useMixer() {
     routing,
     vuLevels,
     devices,
-    // Canal
     getChannelGain,
     getChannelRouting,
     setChannelGain,
@@ -220,12 +224,10 @@ export function useMixer() {
     toggleMonitorRoute,
     toggleRetornoRoute,
     toggleOutRoute,
-    // Bus
     getBusConfig,
     setBusGain,
     setBusMuted,
     setBusDevice,
-    // VU
     getVuLevel,
   };
 }

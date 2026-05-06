@@ -1,40 +1,28 @@
 use crate::core::audio::start_audio_engine;
-use crate::core::mixer::load_mixer_routing;
+use crate::core::mixer::DigitalMixer;
 use crate::error::{AppError, AppResult};
 use crate::models::audio::{AudioCommand, PlaybackState};
-use crate::models::mixer::{MixerRouting, VuLevel};
-use std::collections::HashMap;
 use std::sync::{mpsc, Arc, Mutex};
 
 pub struct AppState {
     tx: Mutex<mpsc::Sender<AudioCommand>>,
     playback: Arc<Mutex<PlaybackState>>,
-    /// Estado de roteamento / ganho persistido em disco.
-    pub mixer_routing: Arc<Mutex<MixerRouting>>,
-    /// Nível VU do canal playlist – atualizado pela thread de áudio via VuMeterSource.
-    pub playlist_vu: Arc<Mutex<VuLevel>>,
-    /// Snapshot de todos os níveis VU – lido pelo frontend via evento Tauri.
-    pub vu_snapshot: Arc<Mutex<HashMap<String, VuLevel>>>,
+    // Apenas UMA referência para o coração do sistema: A Mesa de Som
+    pub mixer: Arc<Mutex<DigitalMixer>>,
 }
 
 impl AppState {
     pub fn new() -> Self {
-        let mixer_routing = Arc::new(Mutex::new(load_mixer_routing()));
-        let playlist_vu = Arc::new(Mutex::new(VuLevel::default()));
-        let vu_snapshot = Arc::new(Mutex::new(HashMap::new()));
+        // 1. Instancia a nova mesa de som digital (carrega roteamento padrão por dentro)
+        let mixer = Arc::new(Mutex::new(DigitalMixer::new()));
 
-        let (tx, playback) = start_audio_engine(
-            mixer_routing.clone(),
-            playlist_vu.clone(),
-            vu_snapshot.clone(),
-        );
+        // 2. Inicia o motor de áudio (thread da cpal) passando o clone do mixer
+        let (tx, playback) = start_audio_engine(mixer.clone());
 
         Self {
             tx: Mutex::new(tx),
             playback,
-            mixer_routing,
-            playlist_vu,
-            vu_snapshot,
+            mixer,
         }
     }
 
