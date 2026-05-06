@@ -3,8 +3,9 @@ use crate::core::mixer::{
 };
 use crate::models::audio::{AudioCommand, AudioItem, PlaybackState};
 use crate::models::mixer::{MixerRouting, VuLevel, CHANNEL_PLAYLIST};
+use cpal::traits::{DeviceTrait, HostTrait};
 use std::sync::Arc;
-use rodio::{Decoder, OutputStream, Sink, Source};
+use rodio::{Decoder, OutputStream, Sink, Source, OutputStreamHandle};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
@@ -14,6 +15,44 @@ use std::time::{Duration, Instant};
 
 const MANUAL_CROSSFADE_OUT_MS: u64 = 3000;
 const MANUAL_CROSSFADE_IN_MS: u64 = 1500;
+
+// ===========================================================================
+// GERENCIADOR DINÂMICO DE PLACAS DE ÁUDIO
+// ===========================================================================
+pub struct DeviceManager {
+    streams: HashMap<String, (OutputStream, OutputStreamHandle)>,
+}
+
+impl DeviceManager {
+    pub fn new() -> Self {
+        Self { streams: HashMap::new() }
+    }
+
+    pub fn get_or_create(&mut self, device_id: Option<&String>) -> Option<OutputStreamHandle> {
+        let key = device_id.cloned().unwrap_or_else(|| "default".to_string());
+        
+        // Se a placa já está aberta, apenas retorna o handle
+        if let Some((_, handle)) = self.streams.get(&key) {
+            return Some(handle.clone());
+        }
+
+        // Abre uma nova conexão com a placa de som selecionada
+        let host = cpal::default_host();
+        let device = if let Some(id) = device_id {
+            host.output_devices().ok().and_then(|mut iter| iter.find(|x| x.name().unwrap_or_default() == *id))
+        } else {
+            host.default_output_device()
+        };
+
+        if let Some(dev) = device {
+            if let Ok((stream, handle)) = OutputStream::try_from_device(&dev) {
+                self.streams.insert(key, (stream, handle.clone()));
+                return Some(handle);
+            }
+        }
+        None
+    }
+}
 
 /// Com o sink **pausado**, o rodio não consome samples → `VuMeterSource` não roda e picos/RMS
 /// ficariam congelados no último valor. Decaimos aqui (e zeramos explícitos em `Pause`).
@@ -35,8 +74,10 @@ fn decay_playlist_vu(vu: &mut VuLevel) {
 // Faixa ativa
 // ---------------------------------------------------------------------------
 
+// Substitua a struct ActiveTrack inteira e suas implementações:
+
 struct ActiveTrack {
-    sink: Sink,
+    sinks: HashMap<String, Sink>, // MUDANÇA: Múltiplas conexões de áudio
     item: AudioItem,
     index: usize,
     last_update: Instant,
@@ -45,11 +86,8 @@ struct ActiveTrack {
     mix_triggered: bool,
     fade_out_start_pos: Option<u64>,
     fade_in_start_pos: Option<u64>,
-    /// Sobrescreve item.fade_duration_ms no fade-in (crossfade manual).
     fade_in_duration_ms: Option<u64>,
-    /// Sobrescreve item.fade_out_time_ms no fade-out (crossfade manual).
     fade_out_duration_ms: Option<u64>,
-    /// Fator de fade atual [0.0, 1.0].
     fade_factor: f32,
 }
 
@@ -66,7 +104,9 @@ impl ActiveTrack {
         if !self.is_playing {
             self.last_update = Instant::now();
             self.is_playing = true;
-            self.sink.play();
+            for sink in self.sinks.values() {
+                sink.play();
+            }
         }
     }
 
@@ -74,16 +114,29 @@ impl ActiveTrack {
         if self.is_playing {
             self.update_position();
             self.is_playing = false;
-            self.sink.pause();
+            for sink in self.sinks.values() {
+                sink.pause();
+            }
         }
     }
 
     fn seek(&mut self, target: Duration) {
         self.update_position();
-        if self.sink.try_seek(target).is_ok() {
+        let mut success = false;
+        for sink in self.sinks.values() {
+            if sink.try_seek(target).is_ok() {
+                success = true;
+            }
+        }
+        if success {
             self.position = target;
             self.last_update = Instant::now();
         }
+    }
+    
+    // Função auxiliar para verificar se a música acabou
+    fn empty(&self) -> bool {
+        self.sinks.values().next().map_or(true, |s| s.empty())
     }
 }
 
@@ -91,20 +144,72 @@ impl ActiveTrack {
 // Abre arquivo e cria Sink com VuMeterSource
 // ---------------------------------------------------------------------------
 
-fn open_track(
+// Substitua a antiga open_track por esta função:
+
+fn open_track_routed(
     item: &AudioItem,
-    stream_handle: &rodio::OutputStreamHandle,
+    dev_manager: &mut DeviceManager,
+    routing: &MixerRouting,
     vu: Arc<Mutex<VuLevel>>,
     strip_gain: Arc<AtomicF32>,
-) -> Option<Sink> {
-    let file = File::open(&item.path).ok()?;
-    let decoder = Decoder::new(BufReader::new(file)).ok()?;
-    let f32_src = decoder.convert_samples::<f32>();
-    let gained = DynamicGainSource::new(f32_src, strip_gain);
-    let vu_src = VuMeterSource::new(gained, vu);
-    let sink = Sink::try_new(stream_handle).ok()?;
-    sink.append(vu_src);
-    Some(sink)
+) -> HashMap<String, Sink> {
+    let mut sinks = HashMap::new();
+    let channel_route = routing.routing.get(CHANNEL_PLAYLIST).cloned().unwrap_or_default();
+
+    // Helper: decodifica o arquivo e aplica os efeitos na placa certa
+    let mut build_sink = |handle: &rodio::OutputStreamHandle, use_vu: bool| -> Option<Sink> {
+        let file = File::open(&item.path).ok()?;
+        let decoder = Decoder::new(BufReader::new(file)).ok()?;
+        let f32_src = decoder.convert_samples::<f32>();
+        
+        let gained = DynamicGainSource::new(f32_src, strip_gain.clone());
+        let sink = Sink::try_new(handle).ok()?;
+
+        if use_vu {
+            sink.append(VuMeterSource::new(gained, vu.clone()));
+        } else {
+            sink.append(gained);
+        }
+        Some(sink)
+    };
+
+    // 1. Rota OUT (Saída de Áudio Principal do Fader)
+    if channel_route.out {
+        if let Some(handle) = dev_manager.get_or_create(channel_route.out_device_id.as_ref()) {
+            if let Some(sink) = build_sink(&handle, true) { // O VU é medido apenas nesta linha! Otimizado!
+                sinks.insert("out".to_string(), sink);
+            }
+        }
+    }
+
+    // 2. Rota Master
+    if channel_route.master {
+        if let Some(handle) = dev_manager.get_or_create(routing.master.device_id.as_ref()) {
+            if let Some(sink) = build_sink(&handle, false) {
+                sinks.insert("master".to_string(), sink);
+            }
+        }
+    }
+
+    // 3. Rota Monitor
+    if channel_route.monitor {
+        if let Some(handle) = dev_manager.get_or_create(routing.monitor.device_id.as_ref()) {
+            if let Some(sink) = build_sink(&handle, false) {
+                sinks.insert("monitor".to_string(), sink);
+            }
+        }
+    }
+
+    // 4. Rota Retorno
+    if channel_route.retorno {
+        if let Some(handle) = dev_manager.get_or_create(routing.retorno.device_id.as_ref()) {
+            if let Some(sink) = build_sink(&handle, false) {
+                sinks.insert("retorno".to_string(), sink);
+            }
+        }
+    }
+
+    sinks
 }
 
 // ---------------------------------------------------------------------------
@@ -130,7 +235,7 @@ pub fn start_audio_engine(
     let state_clone = state.clone();
 
     thread::spawn(move || {
-        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+        let mut dev_manager = DeviceManager::new();
         let playlist_strip_gain = Arc::new(AtomicF32::new(1.0));
         let mut queue: Vec<AudioItem> = Vec::new();
         let mut current_track: Option<ActiveTrack> = None;
@@ -179,12 +284,16 @@ pub fn start_audio_engine(
                     AudioCommand::PlayIndex(idx) => {
                         if idx < queue.len() {
                             let item = queue[idx].clone();
-                            if let Some(sink) = open_track(
+                            let current_routing = mixer_routing.lock().unwrap().clone();
+                            let sinks = open_track_routed(
                                 &item,
-                                &stream_handle,
+                                &mut dev_manager,
+                                &current_routing,
                                 playlist_vu.clone(),
                                 playlist_strip_gain.clone(),
-                            ) {
+                            );
+
+                            if !sinks.is_empty() {
                                 let mut crossfade = false;
                                 if let Some(mut old_track) = current_track.take() {
                                     crossfade = old_track.is_playing;
@@ -200,18 +309,23 @@ pub fn start_audio_engine(
                                         }
                                         background_tracks.push(old_track);
                                     } else {
-                                        old_track.sink.stop();
+                                        // MUDANÇA: Parar todos os fluxos antigos
+                                        for s in old_track.sinks.values() { s.stop(); }
                                     }
                                 }
 
                                 log_debug(&format!("PlayIndex={} crossfade={}", idx, crossfade));
 
                                 let initial_ff = if crossfade { 0.0_f32 } else { 1.0_f32 };
-                                sink.set_volume(initial_ff * mfactor);
-                                sink.play();
+                                
+                                // MUDANÇA: Iniciar todas as placas configuradas
+                                for sink in sinks.values() {
+                                    sink.set_volume(initial_ff);
+                                    sink.play();
+                                }
 
                                 current_track = Some(ActiveTrack {
-                                    sink,
+                                    sinks, // MUDANÇA: Passa o HashMap de conexões
                                     item,
                                     index: idx,
                                     last_update: Instant::now(),
@@ -220,11 +334,7 @@ pub fn start_audio_engine(
                                     mix_triggered: false,
                                     fade_out_start_pos: None,
                                     fade_in_start_pos: if crossfade { Some(0) } else { None },
-                                    fade_in_duration_ms: if crossfade {
-                                        Some(MANUAL_CROSSFADE_IN_MS)
-                                    } else {
-                                        None
-                                    },
+                                    fade_in_duration_ms: if crossfade { Some(MANUAL_CROSSFADE_IN_MS) } else { None },
                                     fade_out_duration_ms: None,
                                     fade_factor: initial_ff,
                                 });
@@ -303,7 +413,17 @@ pub fn start_audio_engine(
                 if (ff - track.fade_factor).abs() > 0.001 {
                     track.fade_factor = ff;
                 }
-                track.sink.set_volume(track.fade_factor * mfactor);
+                let r = mixer_routing.lock().unwrap();
+                for (bus_name, sink) in &track.sinks {
+                    let bus_gain = match bus_name.as_str() {
+                        "master" => if r.master.muted { 0.0 } else { r.master.gain },
+                        "monitor" => if r.monitor.muted { 0.0 } else { r.monitor.gain },
+                        "retorno" => if r.retorno.muted { 0.0 } else { r.retorno.gain },
+                        "out" => 1.0, // Rota limpa da placa
+                        _ => 1.0,
+                    };
+                    sink.set_volume(track.fade_factor * bus_gain);
+                }
 
                 let dur_ms = track.item.duration_ms.unwrap_or(0);
 
@@ -323,7 +443,7 @@ pub fn start_audio_engine(
                     }
                 }
 
-                if track.sink.empty() && !track.mix_triggered {
+                if track.empty() && !track.mix_triggered {
                     log_debug(&format!("Mix por sink vazio pos={}", pos_ms));
                     track.mix_triggered = true;
                     auto_play_next = Some(track.index + 1);
@@ -354,11 +474,43 @@ pub fn start_audio_engine(
 
             // Snapshot VU para o frontend
             {
-                let vu = playlist_vu.lock().unwrap().clone();
-                vu_snapshot
-                    .lock()
-                    .unwrap()
-                    .insert(CHANNEL_PLAYLIST.to_string(), vu);
+                let playlist_vu_val = playlist_vu.lock().unwrap().clone();
+                let mut snapshot = vu_snapshot.lock().unwrap();
+
+                let r = mixer_routing.lock().unwrap().clone();
+
+                // Canal Individual
+                snapshot.insert(CHANNEL_PLAYLIST.to_string(), playlist_vu_val.clone());
+
+                // Soma os VUs de acordo com o Roteamento
+                let mut master_vu = VuLevel::default();
+                let mut monitor_vu = VuLevel::default();
+                let mut retorno_vu = VuLevel::default();
+
+                let merge_vu = |target: &mut VuLevel, source: &VuLevel| {
+                    target.rms_left = target.rms_left.max(source.rms_left);
+                    target.rms_right = target.rms_right.max(source.rms_right);
+                    target.peak_left = target.peak_left.max(source.peak_left);
+                    target.peak_right = target.peak_right.max(source.peak_right);
+                };
+
+                let route_playlist = r.routing.get(CHANNEL_PLAYLIST).cloned().unwrap_or_default();
+                if route_playlist.master { merge_vu(&mut master_vu, &playlist_vu_val); }
+                if route_playlist.monitor { merge_vu(&mut monitor_vu, &playlist_vu_val); }
+                if route_playlist.retorno { merge_vu(&mut retorno_vu, &playlist_vu_val); }
+
+                let apply_bus_fader = |mut vu: VuLevel, bus: &crate::models::mixer::BusConfig| -> VuLevel {
+                    if bus.muted { return VuLevel::default(); }
+                    vu.rms_left *= bus.gain;
+                    vu.rms_right *= bus.gain;
+                    vu.peak_left *= bus.gain;
+                    vu.peak_right *= bus.gain;
+                    vu
+                };
+
+                snapshot.insert("master".to_string(), apply_bus_fader(master_vu, &r.master));
+                snapshot.insert("monitor".to_string(), apply_bus_fader(monitor_vu, &r.monitor));
+                snapshot.insert("retorno".to_string(), apply_bus_fader(retorno_vu, &r.retorno));
             }
 
             // ------------------------------------------------------------------
@@ -367,12 +519,17 @@ pub fn start_audio_engine(
             if let Some(next_idx) = auto_play_next {
                 if next_idx < queue.len() {
                     let item = queue[next_idx].clone();
-                    if let Some(sink) = open_track(
+                    
+                    let current_routing = mixer_routing.lock().unwrap().clone();
+                    let sinks = open_track_routed(
                         &item,
-                        &stream_handle,
+                        &mut dev_manager,
+                        &current_routing,
                         playlist_vu.clone(),
                         playlist_strip_gain.clone(),
-                    ) {
+                    );
+
+                    if !sinks.is_empty() {
                         log_debug(&format!("Auto-play next={}", next_idx));
 
                         if let Some(mut old_track) = current_track.take() {
@@ -396,11 +553,14 @@ pub fn start_audio_engine(
                             background_tracks.push(old_track);
                         }
 
-                        sink.set_volume(0.0);
-                        sink.play();
+                        // MUDANÇA: Iniciar Sinks em volume zero para o crossfade
+                        for sink in sinks.values() {
+                            sink.set_volume(0.0);
+                            sink.play();
+                        }
 
                         current_track = Some(ActiveTrack {
-                            sink,
+                            sinks, // MUDANÇA
                             item,
                             index: next_idx,
                             last_update: Instant::now(),
@@ -413,14 +573,6 @@ pub fn start_audio_engine(
                             fade_out_duration_ms: None,
                             fade_factor: 0.0,
                         });
-                    }
-                } else {
-                    current_track = None;
-                    if let Ok(mut st) = state_clone.lock() {
-                        st.current_index = None;
-                        st.current_id = None;
-                        st.position_ms = 0;
-                        st.is_playing = false;
                     }
                 }
             }
@@ -441,16 +593,20 @@ pub fn start_audio_engine(
                         let elapsed = pos_ms.saturating_sub(start_pos);
                         if elapsed < dur {
                             let ff = 1.0 - (elapsed as f32 / dur as f32);
-                            bt.sink.set_volume(ff * mfactor);
+                            for sink in bt.sinks.values() {
+                                sink.set_volume(ff);
+                            }
                         } else {
-                            bt.sink.set_volume(0.0);
-                            bt.sink.stop();
+                            for sink in bt.sinks.values() {
+                                sink.set_volume(0.0);
+                                sink.stop();
+                            }
                         }
                     }
                 }
             }
             background_tracks.retain(|bt| {
-                let empty = bt.sink.empty();
+                let empty = bt.empty();
                 if empty {
                     log_debug(&format!("Background idx={} removido", bt.index));
                 }
