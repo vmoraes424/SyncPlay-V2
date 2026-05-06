@@ -151,7 +151,7 @@ export function ChannelStrip({
         </div>
 
         <div className="vu-box shrink-0">
-          <VuMeter level={vuLevel} height={120} barWidth={11} gap={1} />
+          <VuMeter level={vuLevel} height={120} barWidth={5} gap={1} />
         </div>
       </div>
 

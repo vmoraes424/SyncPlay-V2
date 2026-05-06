@@ -8,7 +8,7 @@
 
 .fader-track {
   position: relative;
-  width: 10px;
+  width: 4px;
   flex: 1;
   background: #111;
   border-radius: 5px;

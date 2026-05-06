@@ -56,9 +56,20 @@ impl VuAcc {
     }
 }
 
-// ---------------------------------------------------------------------------
-// VuMeterSource – wrappa qualquer Source<Item=f32> e mede VU em paralelo
-// ---------------------------------------------------------------------------
+// Helper para converter amplitude linear na escala visual de Decibéis (0.0 a 1.0)
+#[inline]
+fn amp_to_db_normalized(amp: f32) -> f32 {
+    if amp <= 0.001 { // Piso de silêncio absoluto (-60dB)
+        return 0.0;
+    }
+    let db = 20.0 * amp.log10();
+    let min_db = -60.0; // O medidor vai de -60dB a 0dB
+    
+    // Normaliza para um range de 0.0 a 1.0 e aplica uma leve curva 
+    // visual para deixar os graves mais responsivos
+    let normalized = ((db - min_db) / (-min_db)).clamp(0.0, 1.0);
+    normalized * normalized
+}
 
 pub struct VuMeterSource<S: Source<Item = f32>> {
     inner: S,
@@ -67,18 +78,22 @@ pub struct VuMeterSource<S: Source<Item = f32>> {
     acc_r: VuAcc,
     peak_l: f32,
     peak_r: f32,
-    // Fator de decaimento do pico por sample (aprox. –40 dB/s @ 44100 Hz).
     peak_decay: f32,
     sample_in_frame: u16,
     channels: u16,
+    update_counter: u16, // Adicionado para otimização de CPU
 }
 
 impl<S: Source<Item = f32>> VuMeterSource<S> {
     pub fn new(inner: S, vu: Arc<Mutex<VuLevel>>) -> Self {
         let channels = inner.channels().max(1);
-        // decay ≈ 0.9999 por sample → –40 dB em ~1 s a 44100 Hz
         let sample_rate = inner.sample_rate() as f32;
-        let peak_decay = 0.9_f32.powf(1.0 / sample_rate);
+        
+        // DECAIMENTO PROFISSIONAL: 
+        // 0.00001 significa cair -100dB por segundo. Isso garante que ao pausar,
+        // o VU desaparece da tela instantaneamente de forma responsiva.
+        let peak_decay = 0.00001_f32.powf(1.0 / sample_rate);
+        
         Self {
             inner,
             vu,
@@ -89,6 +104,7 @@ impl<S: Source<Item = f32>> VuMeterSource<S> {
             peak_decay,
             sample_in_frame: 0,
             channels,
+            update_counter: 0,
         }
     }
 }
@@ -100,9 +116,10 @@ impl<S: Source<Item = f32>> Iterator for VuMeterSource<S> {
         let s = self.inner.next()?;
         let abs = s.abs();
         let s_sq = s * s;
+        let mut current_rms_l = 0.0;
+        let mut current_rms_r = 0.0;
 
         if self.channels == 1 {
-            // Mono: duplica em L e R
             let rms = self.acc_l.push(s_sq);
             let _ = self.acc_r.push(s_sq);
             if abs > self.peak_l {
@@ -111,38 +128,17 @@ impl<S: Source<Item = f32>> Iterator for VuMeterSource<S> {
                 self.peak_l *= self.peak_decay;
             }
             self.peak_r = self.peak_l;
-
-            if let Ok(mut v) = self.vu.try_lock() {
-                v.rms_left = rms.min(1.0);
-                v.rms_right = rms.min(1.0);
-                v.peak_left = self.peak_l.min(1.0);
-                v.peak_right = self.peak_r.min(1.0);
-            }
+            current_rms_l = rms;
+            current_rms_r = rms;
         } else {
             match self.sample_in_frame {
                 0 => {
-                    let rms = self.acc_l.push(s_sq);
-                    if abs > self.peak_l {
-                        self.peak_l = abs;
-                    } else {
-                        self.peak_l *= self.peak_decay;
-                    }
-                    if let Ok(mut v) = self.vu.try_lock() {
-                        v.rms_left = rms.min(1.0);
-                        v.peak_left = self.peak_l.min(1.0);
-                    }
+                    current_rms_l = self.acc_l.push(s_sq);
+                    if abs > self.peak_l { self.peak_l = abs; } else { self.peak_l *= self.peak_decay; }
                 }
                 1 => {
-                    let rms = self.acc_r.push(s_sq);
-                    if abs > self.peak_r {
-                        self.peak_r = abs;
-                    } else {
-                        self.peak_r *= self.peak_decay;
-                    }
-                    if let Ok(mut v) = self.vu.try_lock() {
-                        v.rms_right = rms.min(1.0);
-                        v.peak_right = self.peak_r.min(1.0);
-                    }
+                    current_rms_r = self.acc_r.push(s_sq);
+                    if abs > self.peak_r { self.peak_r = abs; } else { self.peak_r *= self.peak_decay; }
                 }
                 _ => {}
             }
@@ -151,8 +147,21 @@ impl<S: Source<Item = f32>> Iterator for VuMeterSource<S> {
         self.sample_in_frame += 1;
         if self.sample_in_frame >= self.channels {
             self.sample_in_frame = 0;
+            self.update_counter += 1;
+            
+            // OTIMIZAÇÃO: Só envia os dados pro Mutex a cada 1024 frames 
+            // (~43 vezes por segundo), desafogando a thread de áudio e o event loop do Tauri.
+            if self.update_counter >= 1024 {
+                self.update_counter = 0;
+                if let Ok(mut v) = self.vu.try_lock() {
+                    // O valor salvo no estado já é a porcentagem visual final em dBFS
+                    v.rms_left = amp_to_db_normalized(current_rms_l.sqrt());
+                    v.rms_right = amp_to_db_normalized(current_rms_r.sqrt());
+                    v.peak_left = amp_to_db_normalized(self.peak_l);
+                    v.peak_right = amp_to_db_normalized(self.peak_r);
+                }
+            }
         }
-
         Some(s)
     }
 }
