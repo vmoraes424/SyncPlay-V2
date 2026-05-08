@@ -1,7 +1,6 @@
 import { BUSES, CHANNELS, useMixer } from "../../hooks/useMixer";
 import { BusStrip } from "./BusStrip";
 import { ChannelStrip } from "./ChannelStrip";
-import "./MixerPanel.css";
 
 export function MixerPanel() {
   const {
@@ -22,10 +21,12 @@ export function MixerPanel() {
   } = useMixer();
 
   return (
-    <div className="mixer-panel">
-      <div className="mixer-panel__body">
+    <div className="flex h-full flex-col overflow-hidden rounded-md bg-[#161616]">
+      <div
+        className="flex flex-1 flex-row items-start gap-0 overflow-y-hidden overflow-x-auto [scrollbar-color:#333_#111] [scrollbar-width:thin] [&::-webkit-scrollbar-thumb]:rounded-[3px] [&::-webkit-scrollbar-thumb]:bg-[#333] [&::-webkit-scrollbar-track]:bg-[#111] [&::-webkit-scrollbar]:h-[6px]"
+      >
         {/* Canais de entrada */}
-        <div className="mixer-panel__channels">
+        <div className="flex shrink-0 flex-row">
           {CHANNELS.map((ch) => (
             <ChannelStrip
               key={ch}
@@ -44,7 +45,7 @@ export function MixerPanel() {
         </div>
 
         {/* Buses de saída */}
-        <div className="mixer-panel__buses">
+        <div className="flex shrink-0 flex-row">
           {BUSES.map((bus) => (
             <BusStrip
               key={bus}
