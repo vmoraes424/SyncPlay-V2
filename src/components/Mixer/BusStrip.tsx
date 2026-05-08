@@ -1,29 +1,39 @@
 import { useCallback } from "react";
-import { AudioDevice, BusConfig, VuLevel } from "../../hooks/useMixer";
-import { Fader } from "./Fader";
-import { VuMeter } from "./VuMeter";
-import "./BusStrip.css";
+import vuMasterMuted from "../../assets/vus/master-off.png";
+import vuMaster from "../../assets/vus/master.png";
+import vuMonitorMuted from "../../assets/vus/volume-monitor-off.png";
+import vuMonitor from "../../assets/vus/volume-monitor.png";
+import vuFoneMuted from "../../assets/vus/volume-fone-off.png";
+import vuFone from "../../assets/vus/volume-fone.png";
+import { AudioDevice, BusConfig, VuLevel, type BusId } from "../../hooks/useMixer";
+import { MixerStripTemplate } from "./MixerStripTemplate";
 
 const BUS_LABELS: Record<string, string> = {
-  master: "Master",
-  monitor: "Monitor",
   retorno: "Retorno",
+  monitor: "Monitor",
+  master: "Master",
 };
 
-const BUS_COLORS: Record<string, string> = {
-  master: "#4caf50",
-  monitor: "#ff9800",
+const BUS_LABEL_COLORS: Record<string, string> = {
   retorno: "#80cbc4",
+  monitor: "#ff9800",
+  master: "#4caf50",
 };
 
 const BUS_BG: Record<string, string> = {
-  master: "#1a2e1a",
-  monitor: "#2e1e0a",
   retorno: "#0e2020",
+  monitor: "#2e1e0a",
+  master: "#1a2e1a",
+};
+
+const BUS_LABEL_ICONS: Record<BusId, { on: string; off: string }> = {
+  retorno: { on: vuFone, off: vuFoneMuted },
+  monitor: { on: vuMonitor, off: vuMonitorMuted },
+  master: { on: vuMaster, off: vuMasterMuted },
 };
 
 interface Props {
-  busId: "master" | "monitor" | "retorno";
+  busId: "retorno" | "monitor" | "master";
   config: BusConfig;
   vuLevel: VuLevel;
   devices: AudioDevice[];
@@ -42,8 +52,11 @@ export function BusStrip({
   onSetDevice,
 }: Props) {
   const label = BUS_LABELS[busId] ?? busId;
-  const color = BUS_COLORS[busId] ?? "#4caf50";
+  const labelColor = BUS_LABEL_COLORS[busId] ?? "#4caf50";
+  const faderColor = labelColor;
   const bg = BUS_BG[busId] ?? "#1a1a1a";
+  const labelIcons = BUS_LABEL_ICONS[busId];
+  const muteIconSrc = config.muted ? labelIcons.off : labelIcons.on;
 
   const handleMuteToggle = useCallback(() => {
     onSetMuted(!config.muted);
@@ -59,47 +72,38 @@ export function BusStrip({
 
   const currentDevice = config.device_id ?? "default";
 
+  const header = (
+    <select
+      className="w-full cursor-pointer truncate rounded border border-[#333] bg-[#0a0a0a] px-1 py-0.5 text-[8px] text-[#888] focus:border-[#555] focus:text-[#ccc] focus:outline-none"
+      value={currentDevice}
+      onChange={handleDeviceChange}
+      title="Dispositivo de saída"
+    >
+      {devices.map((d) => (
+        <option key={d.id} value={d.id}>
+          {d.name}
+        </option>
+      ))}
+    </select>
+  );
+
   return (
-    <div className={`bus-strip ${config.muted ? "bus-strip--muted" : ""}`} style={{ background: bg }}>
-      {/* Cabeçalho */}
-      <div className="bus-strip__header">
-        <span className="bus-strip__label" style={{ color }}>
-          {label}
-        </span>
-        <button
-          className={`channel-btn channel-btn--mute ${config.muted ? "active" : ""}`}
-          onClick={handleMuteToggle}
-          title="Mute"
-        >
-          M
-        </button>
-      </div>
-
-      {/* VU + Fader */}
-      <div className="bus-strip__av">
-        <VuMeter level={vuLevel} height={120} barWidth={12} gap={1} />
-        <Fader
-          value={config.gain}
-          onChange={onSetGain}
-          height={120}
-          color={color}
-          label="GAIN"
-        />
-      </div>
-
-      {/* Seletor de dispositivo */}
-      <select
-        className="bus-strip__device-select"
-        value={currentDevice}
-        onChange={handleDeviceChange}
-        title="Dispositivo de saída"
-      >
-        {devices.map((d) => (
-          <option key={d.id} value={d.id}>
-            {d.name}
-          </option>
-        ))}
-      </select>
-    </div>
+    <MixerStripTemplate
+      header={header}
+      className="w-[78px] min-w-[78px] shrink-0 rounded"
+      style={{ background: bg }}
+      faderValue={config.gain}
+      onFaderChange={onSetGain}
+      faderColor={faderColor}
+      vuLevel={vuLevel}
+      vuBarWidth={5}
+      vuGap={1}
+      muted={config.muted}
+      onMuteToggle={handleMuteToggle}
+      muteIconSrc={muteIconSrc}
+      muteButtonTitle={config.muted ? "Unmute" : "Mute"}
+      label={label}
+      labelColor={labelColor}
+    />
   );
 }

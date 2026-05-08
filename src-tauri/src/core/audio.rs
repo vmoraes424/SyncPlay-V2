@@ -204,8 +204,10 @@ fn handle_command(
             let Some(item) = queue.get(idx).cloned() else { return };
             
             if let Some(mut c) = current.take() {
-                c.fade_out_start_pos_ms = Some(track_pos_ms(&c, sr, ch));
-                c.fade_out_duration_ms = Some(c.manual_fade_out_ms);
+                if c.manual_fade_out_ms > 0 {
+                    c.fade_out_start_pos_ms = Some(track_pos_ms(&c, sr, ch));
+                    c.fade_out_duration_ms = Some(c.manual_fade_out_ms);
+                }
                 finishing.push(c);
             }
 
@@ -254,8 +256,10 @@ fn handle_command(
             let next_idx = current.as_ref().map(|c| c.index + 1);
 
             if let Some(mut c) = current.take() {
-                c.fade_out_start_pos_ms = Some(track_pos_ms(&c, sr, ch));
-                c.fade_out_duration_ms = Some(fade_ms);
+                if fade_ms > 0 {
+                    c.fade_out_start_pos_ms = Some(track_pos_ms(&c, sr, ch));
+                    c.fade_out_duration_ms = Some(fade_ms);
+                }
                 finishing.push(c);
             }
 

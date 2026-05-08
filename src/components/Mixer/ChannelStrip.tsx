@@ -1,11 +1,29 @@
 import { useCallback } from "react";
+import vemMute from "../../assets/vus/vem-off.png";
+import vem from "../../assets/vus/vem.png";
+import vuLineMuted from "../../assets/vus/volume-line-off.png";
+import vuLine from "../../assets/vus/volume-line.png";
+import vuMicMuted from "../../assets/vus/volume-mic-off.png";
+import vuMic from "../../assets/vus/volume-mic.png";
+import vuOnAirOff from "../../assets/vus/volume-onair-off.png";
+import vuOnAir from "../../assets/vus/volume-onair.png";
 import {
   ChannelGain,
   ChannelRouting,
   VuLevel,
+  type ChannelId,
 } from "../../hooks/useMixer";
-import { Fader } from "./Fader";
-import { VuMeter } from "./VuMeter";
+import { MixerStripTemplate } from "./MixerStripTemplate";
+
+const FALLBACK_MUTE = { on: vuLine, off: vuLineMuted };
+
+/** Ícones só do botão mute (thumb do fader é sempre volume-thumb). */
+const CHANNEL_MUTE_ICONS: Partial<Record<ChannelId, { on: string; off: string }>> = {
+  playlist: { on: vuOnAir, off: vuOnAirOff },
+  vem: { on: vem, off: vemMute },
+  mic: { on: vuMic, off: vuMicMuted },
+  linein: { on: vuLine, off: vuLineMuted },
+};
 
 const CHANNEL_LABELS: Record<string, string> = {
   playlist: "Playlist",
@@ -21,7 +39,6 @@ const CHANNEL_COLORS: Record<string, string> = {
   linein: "#2196f3",
 };
 
-/** Base dos botões do strip (equivalente a `.channel-btn` legado). */
 const BTN_BASE =
   "flex min-h-[18px] min-w-0 flex-1 items-center justify-center gap-0.5 rounded-sm border border-[#111] bg-linear-to-b from-[#555] to-[#333] px-0.5 py-0.5 font-[Arial,sans-serif] text-[9px] font-bold uppercase tracking-wide text-[#ccc] transition-[background,color,box-shadow] active:scale-[0.97] active:shadow-[inset_0_1px_3px_rgba(0,0,0,0.6)]";
 
@@ -51,9 +68,22 @@ export function ChannelStrip({
   onToggleOut,
 }: Props) {
   const label = CHANNEL_LABELS[channelId] ?? channelId;
-  const color = CHANNEL_COLORS[channelId] ?? "#4caf50";
-  /** Larguras tipo `.vu-vem1` / `.vu-microfone1` (90px) vs `.vu-block` padrão (70px). */
+  const labelColor = CHANNEL_COLORS[channelId] ?? "#4caf50";
+
+  /** Larguras tipo `.vu-vem1` / `.vu-microfone1` (90px) vs padrão (70px). */
   const wideStrip = channelId === "vem" || channelId === "mic";
+
+  const muteIcons = CHANNEL_MUTE_ICONS[channelId as ChannelId] ?? FALLBACK_MUTE;
+  const muteIconSrc = gain.muted ? muteIcons.off : muteIcons.on;
+
+  const muteButtonTitle =
+    channelId === "playlist"
+      ? gain.muted
+        ? "Fora do ar"
+        : "On Air"
+      : gain.muted
+        ? "Unmute"
+        : "Mute";
 
   const handleMuteToggle = useCallback(() => {
     onSetMuted(!gain.muted);
@@ -62,11 +92,10 @@ export function ChannelStrip({
   return (
     <div
       data-channel={channelId}
-      className={`box-border flex min-h-0 shrink-0 flex-col items-center justify-between border border-[#1a1a1a] bg-[var(--secondary-gray,#262626)] p-2 text-center transition-opacity ${
+      className={`box-border flex min-h-0 shrink-0 flex-col items-center justify-between border border-[#1a1a1a] bg-(--secondary-gray,#262626) p-2 text-center transition-opacity ${
         wideStrip ? "w-[90px] min-w-[90px]" : "w-[70px] min-w-[70px]"
       } ${gain.muted ? "opacity-50" : "opacity-100"}`}
     >
-      {/* .vu-top-controls */}
       <div className="vu-top-controls flex w-full flex-col gap-1.5">
         <div className="flex w-full gap-[5px]">
           <button
@@ -81,7 +110,7 @@ export function ChannelStrip({
           >
             <span
               className="size-2 shrink-0 rounded-full border border-black/40"
-              style={{ backgroundColor: color }}
+              style={{ backgroundColor: labelColor }}
               aria-hidden
             />
             OUT
@@ -134,48 +163,23 @@ export function ChannelStrip({
         </div>
       </div>
 
-      {/* .vu-channels — escala dB + fader (.volume-vu) + medidor (.vu-box) */}
-      <div className="vu-channels vu-out flex min-h-0 w-full flex-1 flex-row items-end justify-center gap-1">
-        <div
-          className="vu-db-scale flex h-[120px] w-3 shrink-0 select-none flex-col justify-between py-0.5 text-right text-[6px] font-semibold leading-none text-neutral-500"
-          aria-hidden
-        >
-          <span>0</span>
-          <span>-20</span>
-          <span>-40</span>
-          <span>-∞</span>
-        </div>
-
-        <div className="volume-vu shrink-0">
-          <Fader value={gain.value} onChange={onSetGain} height={120} color={color} />
-        </div>
-
-        <div className="vu-box shrink-0">
-          <VuMeter level={vuLevel} height={120} barWidth={5} gap={1} />
-        </div>
-      </div>
-
-      {/* .vu-buttons — mute + rótulo */}
-      <div className="vu-buttons flex w-full flex-col items-center gap-1.5">
-        <button
-          type="button"
-          className={`${BTN_BASE} size-7 max-h-7 max-w-7 min-h-0 flex-none rounded-md p-0 ${
-            gain.muted
-              ? "bg-linear-to-b from-[#3a1a1a] to-[#2a0a0a] text-[#f44336]"
-              : ""
-          }`}
-          onClick={handleMuteToggle}
-          title="Mute"
-        >
-          M
-        </button>
-        <span
-          className="max-w-full truncate text-[9px] font-semibold uppercase tracking-wide"
-          style={{ color }}
-        >
-          {label}
-        </span>
-      </div>
+      <MixerStripTemplate
+        embed
+        className="vu-channels vu-out mt-1 w-full min-h-0 flex-1 justify-end"
+        faderValue={gain.value}
+        onFaderChange={onSetGain}
+        faderColor={labelColor}
+        faderHeight={120}
+        vuLevel={vuLevel}
+        vuBarWidth={5}
+        vuGap={1}
+        muted={gain.muted}
+        onMuteToggle={handleMuteToggle}
+        muteIconSrc={muteIconSrc}
+        muteButtonTitle={muteButtonTitle}
+        label={label}
+        labelColor={labelColor}
+      />
     </div>
   );
 }
