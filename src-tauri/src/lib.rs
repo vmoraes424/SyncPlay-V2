@@ -68,7 +68,11 @@ pub fn run() {
 
             // Pega uma referência clonada do Mixer para a thread paralela
             let state = app_handle.state::<crate::state::AppState>();
-            let mixer_clone = state.mixer.clone();
+            let vu_clone = state.vu.clone();
+            let master_vu_clone = state.master_vu.clone();
+            let monitor_vu_clone = state.monitor_vu.clone();
+            let retorno_vu_clone = state.retorno_vu.clone();
+            let routing_clone = state.routing.clone();
 
             // Thread Levíssima de Interface (UI) - 30 FPS
             thread::spawn(move || {
@@ -79,31 +83,45 @@ pub fn run() {
                     "peak_right": 0.0
                 });
                 loop {
-                    if let Ok(mixer) = mixer_clone.try_lock() {
-                        // VU por canal vem do HashMap (preenchido durante process_audio_block).
-                        let mut levels = serde_json::Map::new();
-                        for (channel_id, vu) in mixer.vu.iter() {
-                            if let Ok(v) = serde_json::to_value(vu) {
-                                levels.insert(channel_id.clone(), v);
+                    let mut levels = serde_json::Map::new();
+                    
+                    if let Ok(vu) = vu_clone.try_lock() {
+                        for (channel_id, v) in vu.iter() {
+                            if let Ok(val) = serde_json::to_value(v) {
+                                levels.insert(channel_id.clone(), val);
                             }
                         }
-                        // Master vem do bus master_vu; monitor/retorno ainda não têm streams próprios.
-                        if let Ok(v) = serde_json::to_value(&mixer.master_vu) {
-                            levels.insert("master".to_string(), v);
+                    }
+                    
+                    if let Ok(master_vu) = master_vu_clone.try_lock() {
+                        if let Ok(val) = serde_json::to_value(&*master_vu) {
+                            levels.insert("master".to_string(), val);
                         }
-                        levels
-                            .entry("monitor".to_string())
-                            .or_insert_with(|| zero_vu.clone());
-                        levels
-                            .entry("retorno".to_string())
-                            .or_insert_with(|| zero_vu.clone());
+                    }
 
+                    if let Ok(monitor_vu) = monitor_vu_clone.try_lock() {
+                        if let Ok(val) = serde_json::to_value(&*monitor_vu) {
+                            levels.insert("monitor".to_string(), val);
+                        }
+                    } else {
+                        levels.insert("monitor".to_string(), zero_vu.clone());
+                    }
+
+                    if let Ok(retorno_vu) = retorno_vu_clone.try_lock() {
+                        if let Ok(val) = serde_json::to_value(&*retorno_vu) {
+                            levels.insert("retorno".to_string(), val);
+                        }
+                    } else {
+                        levels.insert("retorno".to_string(), zero_vu.clone());
+                    }
+
+                    if let Ok(routing) = routing_clone.try_lock() {
                         let payload = serde_json::json!({
-                            "channels": mixer.routing.channels,
-                            "routing": mixer.routing.routing,
-                            "master": mixer.routing.master,
-                            "monitor": mixer.routing.monitor,
-                            "retorno": mixer.routing.retorno,
+                            "channels": routing.channels,
+                            "routing": routing.routing,
+                            "master": routing.master,
+                            "monitor": routing.monitor,
+                            "retorno": routing.retorno,
                             "levels": levels,
                         });
 
