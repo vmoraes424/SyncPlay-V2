@@ -95,6 +95,7 @@ export function Fader({
           style={{
             bottom: `calc(${pct}% - 14px)`,
             cursor: disabled ? "not-allowed" : dragging ? "grabbing" : "grab",
+            borderColor: color,
           }}
         >
           <span className="fader-db">{formatDb(value)}</span>

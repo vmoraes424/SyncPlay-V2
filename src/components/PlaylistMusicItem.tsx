@@ -233,8 +233,10 @@ export function PlaylistMusicItem({
 
   const isMusicKind = (music.type ?? 'music') === 'music';
 
+  const isVisuallyPlaying = isCurrentlyPlaying || isBackgroundPlaying;
+
   const trashHighlighted =
-    Boolean(showTrashSkipIcon && !isCurrentlyPlaying && !isDisabled);
+    Boolean(showTrashSkipIcon && !isVisuallyPlaying && !isDisabled);
 
   const itemBg = TYPE_BG[music.type ?? ''];
   const itemBorderColor = TYPE_BORDER[music.type ?? ''];
@@ -245,21 +247,18 @@ export function PlaylistMusicItem({
     isDisabled ? 'playlist-music-item--disabled-extra' : '',
     isDisabled
       ? 'bg-black/30 border-[#353535]/55 border-dashed opacity-45 grayscale saturate-0'
-      : isCurrentlyPlaying
+      : isVisuallyPlaying
         ? 'playing'
-        : isBackgroundPlaying
-          ? 'border-violet-500/25'
-          : isScheduledUpcoming
-            ? 'playlist-item--scheduled-upcoming'
-            : 'bg-white/[0.02] border-[#353535]/55',
+        : isScheduledUpcoming
+          ? 'playlist-item--scheduled-upcoming'
+          : 'bg-white/[0.02] border-[#353535]/55',
   ].filter(Boolean).join(' ');
 
   const itemStyle: React.CSSProperties = {
     ...(itemBg && !isDisabled ? { background: itemBg } : {}),
     ...(itemBorderColor &&
       !isDisabled &&
-      !isCurrentlyPlaying &&
-      !isBackgroundPlaying &&
+      !isVisuallyPlaying &&
       !trashHighlighted
       ? { borderColor: itemBorderColor }
       : {}),
@@ -269,7 +268,7 @@ export function PlaylistMusicItem({
   if (music.extra?.mix?.duration_total) displayDuration = music.extra.mix.duration_total / 1000;
   else if (music.extra?.mix?.duration_real) displayDuration = music.extra.mix.duration_real / 1000;
   else if (music.duration) displayDuration = music.duration;
-  else if (isCurrentlyPlaying) displayDuration = duration;
+  else if (isVisuallyPlaying) displayDuration = duration;
 
   let itemCurrentTime = 0;
   if (isCurrentlyPlaying) itemCurrentTime = currentTime;
@@ -379,7 +378,7 @@ export function PlaylistMusicItem({
       : null;
 
   function handlePlaylistItemSurfaceClick(e: React.MouseEvent) {
-    if (!onPlaylistItemSelect || isCurrentlyPlaying || isDisabled) return;
+    if (!onPlaylistItemSelect || isVisuallyPlaying || isDisabled) return;
     const el = e.target as HTMLElement;
     if (el.closest('button')) return;
     if (el.closest('input')) return;
@@ -436,7 +435,7 @@ export function PlaylistMusicItem({
       style={itemStyle}
       title={isDisabled ? 'Mídia descartada/desabilitada' : undefined}
       onClick={
-        onPlaylistItemSelect && !isDisabled && !isCurrentlyPlaying
+        onPlaylistItemSelect && !isDisabled && !isVisuallyPlaying
           ? handlePlaylistItemSurfaceClick
           : undefined
       }
@@ -458,7 +457,7 @@ export function PlaylistMusicItem({
                 'absolute inset-0 w-full h-full flex items-center justify-center text-white p-0 text-[1rem] transition-all duration-75',
                 isDisabled
                   ? 'text-slate-500 cursor-not-allowed bg-black/30'
-                  : isCurrentlyPlaying && isPlaying
+                  : isVisuallyPlaying && isPlaying
                     ? 'bg-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.4)] animate-pulse-btn'
                     : 'bg-black/30 hover:bg-[#353535]/90 hover:shadow-[0_0_10px_rgba(0,0,0,0.35)]',
               ].join(' ')}
@@ -466,11 +465,11 @@ export function PlaylistMusicItem({
               onPointerDown={(ev) => ev.stopPropagation()}
               disabled={isDisabled}
               title={
-                isDisabled ? 'Mídia descartada/desabilitada' : isCurrentlyPlaying && isPlaying ? 'Pausar' : 'Tocar'
+                isDisabled ? 'Mídia descartada/desabilitada' : isVisuallyPlaying && isPlaying ? 'Pausar' : 'Tocar'
               }
             >
               <span className="drop-shadow-[0_1px_4px_rgba(0,0,0,0.8)] text-xl">
-                {isCurrentlyPlaying && isPlaying ? '⏸' : '▶'}
+                {isVisuallyPlaying && isPlaying ? '⏸' : '▶'}
               </span>
             </button>
           ) : null}
@@ -732,7 +731,7 @@ export function PlaylistMusicItem({
             value={itemCurrentTime}
             onChange={onSeek}
             onPointerDown={(ev) => ev.stopPropagation()}
-            disabled={isDisabled || !isCurrentlyPlaying}
+            disabled={isDisabled || !isVisuallyPlaying}
             style={{ background: barBg }}
           />
         </div>

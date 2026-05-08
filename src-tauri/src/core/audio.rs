@@ -26,9 +26,11 @@ struct TrackEntry {
     volume: Arc<AtomicU32>,
     duration_ms: u64,
     mix_end_ms: Option<u64>,
-    fade_duration_ms: u64,
+    fade_out_time_ms: u64,
     manual_fade_out_ms: u64,
     seek_flush_pending: Arc<AtomicBool>,
+    fade_out_start_pos_ms: Option<u64>,
+    fade_out_duration_ms: Option<u64>,
 }
 
 pub fn start_audio_engine() -> (
@@ -120,15 +122,12 @@ fn engine_loop(
 ) {
     let mut queue: Vec<AudioItem> = Vec::new();
     let mut current: Option<TrackEntry> = None;
-    let mut incoming: Option<TrackEntry> = None;
-    let mut xfade_total_ms: u64 = 0;
-    let mut xfade_started_pos_ms: u64 = 0;
+    let mut finishing: Vec<TrackEntry> = Vec::new();
 
     loop {
         match rx.recv_timeout(Duration::from_millis(33)) {
             Ok(cmd) => handle_command(
-                cmd, &mut queue, &mut current, &mut incoming,
-                &mut xfade_total_ms, &mut xfade_started_pos_ms,
+                cmd, &mut queue, &mut current, &mut finishing,
                 &mixer_tx, &playback, sr, ch,
             ),
             Err(mpsc::RecvTimeoutError::Timeout) => {}
@@ -136,10 +135,55 @@ fn engine_loop(
         }
 
         process_transitions(
-            &queue, &mut current, &mut incoming,
-            &mut xfade_total_ms, &mut xfade_started_pos_ms,
+            &queue, &mut current, &mut finishing,
             &mixer_tx, &playback, sr, ch,
         );
+        
+        // Limpa tracks que já terminaram de tocar naturalmente ou terminaram o fadeout
+        finishing.retain_mut(|t| {
+            let mut remove = false;
+            if t.finished.load(Ordering::Acquire) {
+                remove = true;
+            } else if let (Some(start_pos), Some(dur)) = (t.fade_out_start_pos_ms, t.fade_out_duration_ms) {
+                let cur_pos = track_pos_ms(t, sr, ch);
+                let elapsed = cur_pos.saturating_sub(start_pos);
+                if dur > 0 {
+                    let progress = (elapsed as f32 / dur as f32).clamp(0.0, 1.0);
+                    let angle = progress * FRAC_PI_2;
+                    store_volume(&t.volume, angle.cos().powi(2));
+                    if progress >= 1.0 {
+                        remove = true;
+                    }
+                } else {
+                    remove = true;
+                }
+            }
+
+            if remove {
+                let _ = t.decoder.cmd_tx.send(DecoderCmd::Stop);
+                let _ = mixer_tx.send(MixerCommand::RemoveTrack(t.id.clone()));
+                false // remove
+            } else {
+                true // keep
+            }
+        });
+
+        // Sincroniza estado unificado de posições para UI
+        if let Ok(mut s) = playback.lock() {
+            if let Some(c) = current.as_ref() {
+                let cur_pos = track_pos_ms(c, sr, ch);
+                s.position_ms = if c.duration_ms > 0 { cur_pos.min(c.duration_ms) } else { cur_pos };
+                s.is_playing = c.active.load(Ordering::Relaxed) && !c.finished.load(Ordering::Acquire);
+            }
+
+            s.background_ids.clear();
+            s.background_positions.clear();
+
+            for f in finishing.iter() {
+                s.background_ids.push(f.id.clone());
+                s.background_positions.insert(f.id.clone(), track_pos_ms(f, sr, ch));
+            }
+        }
     }
 }
 
@@ -148,9 +192,7 @@ fn handle_command(
     cmd: AudioCommand,
     queue: &mut Vec<AudioItem>,
     current: &mut Option<TrackEntry>,
-    incoming: &mut Option<TrackEntry>,
-    xfade_total_ms: &mut u64,
-    xfade_started_pos_ms: &mut u64,
+    finishing: &mut Vec<TrackEntry>,
     mixer_tx: &Sender<MixerCommand>,
     playback: &Arc<Mutex<PlaybackState>>,
     sr: u32,
@@ -160,10 +202,12 @@ fn handle_command(
         AudioCommand::SetQueue(items) => *queue = items,
         AudioCommand::PlayIndex(idx) => {
             let Some(item) = queue.get(idx).cloned() else { return };
-            stop_entry(incoming.take(), mixer_tx);
-            *xfade_total_ms = 0;
-            *xfade_started_pos_ms = 0;
-            stop_entry(current.take(), mixer_tx);
+            
+            if let Some(mut c) = current.take() {
+                c.fade_out_start_pos_ms = Some(track_pos_ms(&c, sr, ch));
+                c.fade_out_duration_ms = Some(c.manual_fade_out_ms);
+                finishing.push(c);
+            }
 
             if let Some(entry) = make_track_entry(&item, idx, 1.0, mixer_tx, sr, ch) {
                 update_playback_started(&entry, &item.id, playback);
@@ -175,9 +219,9 @@ fn handle_command(
                 c.active.store(false, Ordering::Release);
                 let _ = mixer_tx.send(MixerCommand::SetTrackState { id: c.id.clone(), playing: false });
             }
-            if let Some(inc) = incoming.as_ref() {
-                inc.active.store(false, Ordering::Release);
-                let _ = mixer_tx.send(MixerCommand::SetTrackState { id: inc.id.clone(), playing: false });
+            for t in finishing.iter() {
+                t.active.store(false, Ordering::Release);
+                let _ = mixer_tx.send(MixerCommand::SetTrackState { id: t.id.clone(), playing: false });
             }
             if let Ok(mut s) = playback.lock() { s.is_playing = false; }
         }
@@ -186,16 +230,16 @@ fn handle_command(
                 c.active.store(true, Ordering::Release);
                 let _ = mixer_tx.send(MixerCommand::SetTrackState { id: c.id.clone(), playing: true });
             }
-            if let Some(inc) = incoming.as_ref() {
-                inc.active.store(true, Ordering::Release);
-                let _ = mixer_tx.send(MixerCommand::SetTrackState { id: inc.id.clone(), playing: true });
+            for t in finishing.iter() {
+                t.active.store(true, Ordering::Release);
+                let _ = mixer_tx.send(MixerCommand::SetTrackState { id: t.id.clone(), playing: true });
             }
             if let Ok(mut s) = playback.lock() { s.is_playing = true; }
         }
         AudioCommand::Seek(ms) => {
-            stop_entry(incoming.take(), mixer_tx);
-            *xfade_total_ms = 0;
-            *xfade_started_pos_ms = 0;
+            for t in finishing.drain(..) {
+                stop_entry(Some(t), mixer_tx);
+            }
 
             if let Some(c) = current.as_ref() {
                 let _ = c.decoder.cmd_tx.send(DecoderCmd::Seek(ms));
@@ -207,30 +251,20 @@ fn handle_command(
         }
         AudioCommand::SkipWithFade => {
             let fade_ms = current.as_ref().map(|c| c.manual_fade_out_ms).unwrap_or(1500);
-            let cur_pos = current.as_ref().map(|c| track_pos_ms(c, sr, ch)).unwrap_or(0);
             let next_idx = current.as_ref().map(|c| c.index + 1);
 
-            stop_entry(incoming.take(), mixer_tx);
-            *xfade_total_ms = 0;
-
-            if fade_ms == 0 {
-                stop_entry(current.take(), mixer_tx);
-                if let Some(ni) = next_idx.and_then(|i| queue.get(i)).cloned() {
-                    if let Some(entry) = make_track_entry(&ni, next_idx.unwrap(), 1.0, mixer_tx, sr, ch) {
-                        update_playback_started(&entry, &ni.id, playback);
-                        *current = Some(entry);
-                    }
-                } else { clear_playback(playback); }
-            } else {
-                if let Some(ni) = next_idx.and_then(|i| queue.get(i)).cloned() {
-                    if let Some(entry) = make_track_entry(&ni, next_idx.unwrap(), 0.0, mixer_tx, sr, ch) {
-                        update_playback_started(&entry, &ni.id, playback);
-                        *incoming = Some(entry);
-                    }
-                }
-                *xfade_total_ms = fade_ms;
-                *xfade_started_pos_ms = cur_pos;
+            if let Some(mut c) = current.take() {
+                c.fade_out_start_pos_ms = Some(track_pos_ms(&c, sr, ch));
+                c.fade_out_duration_ms = Some(fade_ms);
+                finishing.push(c);
             }
+
+            if let Some(ni) = next_idx.and_then(|i| queue.get(i)).cloned() {
+                if let Some(entry) = make_track_entry(&ni, next_idx.unwrap(), 1.0, mixer_tx, sr, ch) {
+                    update_playback_started(&entry, &ni.id, playback);
+                    *current = Some(entry);
+                }
+            } else { clear_playback(playback); }
         }
     }
 }
@@ -239,70 +273,48 @@ fn handle_command(
 fn process_transitions(
     queue: &[AudioItem],
     current: &mut Option<TrackEntry>,
-    incoming: &mut Option<TrackEntry>,
-    xfade_total_ms: &mut u64,
-    xfade_started_pos_ms: &mut u64,
+    finishing: &mut Vec<TrackEntry>,
     mixer_tx: &Sender<MixerCommand>,
     playback: &Arc<Mutex<PlaybackState>>,
     sr: u32,
     ch: u16,
 ) {
-    if *xfade_total_ms > 0 {
-        let cur_pos = current.as_ref().map(|c| track_pos_ms(c, sr, ch)).unwrap_or(0);
-        let elapsed = cur_pos.saturating_sub(*xfade_started_pos_ms);
-        let progress = (elapsed as f32 / *xfade_total_ms as f32).clamp(0.0, 1.0);
-
-        let angle = progress * FRAC_PI_2;
-        if let Some(c) = current.as_ref() { store_volume(&c.volume, angle.cos().powi(2)); }
-        if let Some(inc) = incoming.as_ref() { store_volume(&inc.volume, angle.sin().powi(2)); }
-
-        if progress >= 1.0 {
-            stop_entry(current.take(), mixer_tx);
-            *current = incoming.take();
-            if let Some(c) = current.as_ref() { store_volume(&c.volume, 1.0); }
-            *xfade_total_ms = 0;
-            *xfade_started_pos_ms = 0;
-            if let Ok(mut s) = playback.lock() {
-                s.position_ms = 0;
-                s.is_playing = current.as_ref().map(|c| c.active.load(Ordering::Relaxed)).unwrap_or(false);
-            }
-        } else {
-            if let Ok(mut s) = playback.lock() {
-                s.position_ms = incoming.as_ref().map(|i| track_pos_ms(i, sr, ch)).unwrap_or(0);
-            }
-        }
-        return;
-    }
-
-    let Some((cur_pos, cur_idx, cur_mix_end, cur_fade_dur, cur_finished, cur_active)) = current.as_ref().map(|c| {
-        (track_pos_ms(c, sr, ch), c.index, c.mix_end_ms, c.fade_duration_ms, c.finished.load(Ordering::Acquire), c.active.load(Ordering::Relaxed))
+    let Some((cur_pos, cur_idx, cur_mix_end, cur_fade_out_time, cur_finished)) = current.as_ref().map(|c| {
+        (track_pos_ms(c, sr, ch), c.index, c.mix_end_ms, c.fade_out_time_ms, c.finished.load(Ordering::Acquire))
     }) else { return; };
 
     if let Some(mix_end) = cur_mix_end {
-        if cur_fade_dur > 0 {
-            let zone_start = mix_end.saturating_sub(cur_fade_dur);
-            if cur_pos >= zone_start && incoming.is_none() {
-                let next_idx = cur_idx + 1;
-                if let Some(next_item) = queue.get(next_idx).cloned() {
-                    if let Some(entry) = make_track_entry(&next_item, next_idx, 0.0, mixer_tx, sr, ch) {
-                        update_playback_started(&entry, &next_item.id, playback);
-                        *incoming = Some(entry);
-                        *xfade_total_ms = cur_fade_dur;
-                        *xfade_started_pos_ms = cur_pos;
-                        return;
+        if cur_pos >= mix_end {
+            let next_idx = cur_idx + 1;
+            if let Some(next_item) = queue.get(next_idx).cloned() {
+                if let Some(mut old) = current.take() {
+                    if cur_fade_out_time > 0 {
+                        old.fade_out_start_pos_ms = Some(cur_pos);
+                        old.fade_out_duration_ms = Some(cur_fade_out_time);
                     }
+                    finishing.push(old);
                 }
-                if cur_pos >= zone_start {
-                    *xfade_total_ms = cur_fade_dur;
-                    *xfade_started_pos_ms = cur_pos;
-                    return;
+                if let Some(entry) = make_track_entry(&next_item, next_idx, 1.0, mixer_tx, sr, ch) {
+                    update_playback_started(&entry, &next_item.id, playback);
+                    *current = Some(entry);
                 }
+                return;
+            }
+            
+            // Se não tem próxima música, faz fadeout no mix_end
+            if cur_fade_out_time > 0 {
+                if let Some(mut old) = current.take() {
+                    old.fade_out_start_pos_ms = Some(cur_pos);
+                    old.fade_out_duration_ms = Some(cur_fade_out_time);
+                    finishing.push(old);
+                }
+                clear_playback(playback);
+                return;
             }
         }
     }
 
     if cur_finished {
-        // Envia o comando de Stop mas garante que o mixer possa drenar
         let next_idx = cur_idx + 1;
         if let Some(old) = current.take() {
             let _ = mixer_tx.send(MixerCommand::RemoveTrack(old.id.clone()));
@@ -317,12 +329,6 @@ fn process_transitions(
         }
         clear_playback(playback);
         return;
-    }
-
-    let duration_ms = current.as_ref().unwrap().duration_ms;
-    if let Ok(mut s) = playback.lock() {
-        s.position_ms = if duration_ms > 0 { cur_pos.min(duration_ms) } else { cur_pos };
-        s.is_playing = cur_active && !cur_finished;
     }
 }
 
@@ -374,9 +380,11 @@ fn make_track_entry(
         volume,
         duration_ms,
         mix_end_ms: item.mix_end_ms,
-        fade_duration_ms: item.fade_duration_ms.unwrap_or(0),
+        fade_out_time_ms: item.fade_out_time_ms.unwrap_or(0),
         manual_fade_out_ms: item.manual_fade_out_ms.unwrap_or(1500),
         seek_flush_pending,
+        fade_out_start_pos_ms: None,
+        fade_out_duration_ms: None,
     })
 }
 

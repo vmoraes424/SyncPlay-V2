@@ -13,6 +13,7 @@ pub struct AudioItem {
     pub fade_out_time_ms: Option<u64>,
     /// Fadeout ao trocar manualmente (espaço ou clique). Música=3000, mídia=1500.
     pub manual_fade_out_ms: Option<u64>,
+    pub media_type: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]

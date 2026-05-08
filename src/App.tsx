@@ -989,7 +989,7 @@ function App() {
 
   const togglePlay = async (uniqueId: string) => {
     try {
-      if (playingId === uniqueId) {
+      if (playingId === uniqueId || backgroundIds.includes(uniqueId)) {
         if (isPlaying) await invoke("pause_audio");
         else await invoke("resume_audio");
       } else {
