@@ -1,4 +1,6 @@
 pub mod audio;
+pub mod decoder;
+pub mod dsp;
 pub mod files;
 pub mod mix_detection;
 pub mod mixer;

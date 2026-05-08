@@ -8,12 +8,16 @@
 //! - Cache **em memória** (OnceLock + Mutex) carregado do disco uma vez; persiste só ao gravar.
 
 use crate::error::AppResult;
-use rodio::{Decoder, Source};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{self, File};
-use std::io::BufReader;
 use std::sync::{Mutex, OnceLock};
+use symphonia::core::audio::SampleBuffer;
+use symphonia::core::codecs::DecoderOptions;
+use symphonia::core::formats::FormatOptions;
+use symphonia::core::io::MediaSourceStream;
+use symphonia::core::meta::MetadataOptions;
+use symphonia::core::probe::Hint;
 
 
 const SAMPLES_COUNT: usize = 500;
@@ -216,16 +220,52 @@ fn compute_mix_point_for_file(
     }
 
     let file = File::open(path)?;
-    // Buffer de 128 KB: reduz drasticamente os syscalls de leitura em arquivos de áudio grandes.
-    let buf = BufReader::with_capacity(128 * 1024, file);
-    let source = match Decoder::new(buf) {
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+
+    let mut hint = Hint::new();
+    if let Some(ext) = std::path::Path::new(path)
+        .extension()
+        .and_then(|s| s.to_str())
+    {
+        hint.with_extension(ext);
+    }
+
+    let probed = match symphonia::default::get_probe().format(
+        &hint,
+        mss,
+        &FormatOptions::default(),
+        &MetadataOptions::default(),
+    ) {
+        Ok(p) => p,
+        Err(_) => return Ok(no_detection()),
+    };
+
+    let mut format = probed.format;
+    let (track_id, source_channels, source_sample_rate, codec_params) = {
+        let Some(track) = format.default_track() else {
+            return Ok(no_detection());
+        };
+        let Some(sr) = track.codec_params.sample_rate else {
+            return Ok(no_detection());
+        };
+        let channels = track
+            .codec_params
+            .channels
+            .map(|c| c.count())
+            .unwrap_or(1)
+            .max(1);
+        (track.id, channels, sr, track.codec_params.clone())
+    };
+
+    let mut decoder = match symphonia::default::get_codecs()
+        .make(&codec_params, &DecoderOptions::default())
+    {
         Ok(d) => d,
         Err(_) => return Ok(no_detection()),
     };
 
-    let channels = source.channels() as usize;
-    let channels = channels.max(1);
-    let sample_rate = source.sample_rate() as f64;
+    let channels = source_channels;
+    let sample_rate = source_sample_rate as f64;
 
     // Estima total de amostras do canal 0 para calcular block_size sem ler o arquivo inteiro.
     // Se a duração for imprecisa, as amostras extras cairão no último bloco (min clamp).
@@ -233,63 +273,67 @@ fn compute_mix_point_for_file(
     let block_size = (estimated_ch0 / SAMPLES_COUNT).max(1);
 
     let mut audio_data = [0.0f32; SAMPLES_COUNT];
-    // Acumuladores para modo avançado (média dos abs a cada 10 posições do bloco)
     let mut block_accum = [0.0f32; SAMPLES_COUNT];
     let mut block_counts = [0usize; SAMPLES_COUNT];
 
     let mut total_ch0 = 0usize;
 
-    // ── Contadores que substituem as divisões/módulos no loop quente ──────────
-    // channel_pos  : 0..channels-1  (substitui interleaved_pos % channels)
-    // current_block: 0..SAMPLES_COUNT (substitui ch0_idx / block_size)
-    // pos_in_block : 0..block_size-1  (substitui ch0_idx % block_size)
     let mut channel_pos = 0usize;
     let mut current_block = 0usize;
     let mut pos_in_block = 0usize;
 
-    // Constante içada: evita reavaliação de `block_size <= 10` a cada amostra.
     let sample_all_in_block = block_size <= 10;
+    let mut step10 = 0usize;
+    let mut sample_buf: Option<SampleBuffer<f32>> = None;
 
-    // O branch `advanced` é resolvido fora do loop para que o compilador gere
-    // dois loops tight sem nenhum branch condicional interno.
-    if advanced {
-        // step10: substitui pos_in_block % 10 — cicla 0..=9 e reseta no início
-        // de cada novo bloco, espelhando o comportamento do algoritmo legado.
-        let mut step10 = 0usize;
-        for sample in source {
-            if channel_pos == 0 {
-                let block = current_block.min(SAMPLES_COUNT - 1);
-                if sample_all_in_block || step10 == 0 {
-                    block_accum[block] += (sample as f32).abs();
-                    block_counts[block] += 1;
-                }
-                step10 += 1;
-                if step10 == 10 {
-                    step10 = 0;
-                }
-                pos_in_block += 1;
-                if pos_in_block == block_size {
-                    pos_in_block = 0;
-                    step10 = 0; // reseta por bloco (como o original)
-                    current_block += 1;
-                }
-                total_ch0 += 1;
-            }
-            channel_pos += 1;
-            if channel_pos == channels {
-                channel_pos = 0;
-            }
+    'outer: loop {
+        let packet = match format.next_packet() {
+            Ok(p) => p,
+            Err(_) => break,
+        };
+        if packet.track_id() != track_id {
+            continue;
         }
-    } else {
-        for sample in source {
+        let audio_buf = match decoder.decode(&packet) {
+            Ok(b) => b,
+            Err(_) => break,
+        };
+        if sample_buf.is_none() {
+            sample_buf = Some(SampleBuffer::<f32>::new(
+                audio_buf.capacity() as u64,
+                *audio_buf.spec(),
+            ));
+        }
+        let buf = sample_buf.as_mut().unwrap();
+        buf.copy_interleaved_ref(audio_buf);
+        let samples = buf.samples();
+
+        for &sample in samples {
             if channel_pos == 0 {
                 let block = current_block.min(SAMPLES_COUNT - 1);
-                // Modo básico: mantém o último valor do bloco (equivale ao original)
-                audio_data[block] = (sample as f32).abs();
+                if advanced {
+                    if sample_all_in_block || step10 == 0 {
+                        block_accum[block] += sample.abs();
+                        block_counts[block] += 1;
+                    }
+                    step10 += 1;
+                    if step10 == 10 {
+                        step10 = 0;
+                    }
+                } else {
+                    audio_data[block] = sample.abs();
+                }
                 pos_in_block += 1;
                 if pos_in_block == block_size {
                     pos_in_block = 0;
+                    if advanced {
+                        step10 = 0;
+                    }
                     current_block += 1;
+                    if current_block >= SAMPLES_COUNT {
+                        // Já cobriu todos os blocos; pode parar de ler.
+                        break 'outer;
+                    }
                 }
                 total_ch0 += 1;
             }

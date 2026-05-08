@@ -1,9 +1,17 @@
-use tauri::Manager;
+// Declaração explícita dos módulos para o compilador do Rust.
+// (Incluí core, models e error assumindo que você os criou na refatoração)
+pub mod commands;
+pub mod state;
+pub mod core;
+pub mod models;
+pub mod error;
+
+// Importamos Emitter junto com Manager para liberar o uso do método .emit()
+use tauri::{Manager, Emitter, PhysicalPosition, PhysicalSize};
 use std::time::Duration;
 use std::thread;
 
-// Certifique-se de importar seus comandos corretamente aqui no topo
-// use crate::commands::{audio::*, mixer::*};
+const WINDOW_STATE_PATH: &str = "C:/SyncPlay/Configs/window_state.json";
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -15,36 +23,94 @@ pub fn run() {
         .manage(app_state)
         .setup(|app| {
             let app_handle = app.handle().clone();
-            
+
+            // Restaura posição/tamanho salvos e exibe a janela
+            let window = app.get_webview_window("main").expect("Janela principal não encontrada");
+
+            if let Ok(content) = std::fs::read_to_string(WINDOW_STATE_PATH) {
+                if let Ok(state) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let (Some(x), Some(y)) = (state["x"].as_i64(), state["y"].as_i64()) {
+                        let _ = window.set_position(PhysicalPosition::new(x as i32, y as i32));
+                    }
+                    if let (Some(w), Some(h)) = (state["width"].as_u64(), state["height"].as_u64()) {
+                        let _ = window.set_size(PhysicalSize::new(w as u32, h as u32));
+                    }
+                    if state["maximized"].as_bool() == Some(true) {
+                        let _ = window.maximize();
+                    }
+                }
+            }
+
+            let _ = window.show();
+
+            // Salva posição/tamanho ao fechar a janela
+            let window_for_event = window.clone();
+            window.on_window_event(move |event| {
+                if let tauri::WindowEvent::CloseRequested { .. } = event {
+                    if let (Ok(pos), Ok(size)) = (
+                        window_for_event.outer_position(),
+                        window_for_event.inner_size(),
+                    ) {
+                        let maximized = window_for_event.is_maximized().unwrap_or(false);
+                        let json_state = serde_json::json!({
+                            "x": pos.x,
+                            "y": pos.y,
+                            "width": size.width,
+                            "height": size.height,
+                            "maximized": maximized,
+                        });
+                        if let Ok(json) = serde_json::to_string_pretty(&json_state) {
+                            let _ = std::fs::write(WINDOW_STATE_PATH, json);
+                        }
+                    }
+                }
+            });
+
             // Pega uma referência clonada do Mixer para a thread paralela
             let state = app_handle.state::<crate::state::AppState>();
             let mixer_clone = state.mixer.clone();
 
             // Thread Levíssima de Interface (UI) - 30 FPS
             thread::spawn(move || {
+                let zero_vu = serde_json::json!({
+                    "rms_left": 0.0,
+                    "rms_right": 0.0,
+                    "peak_left": 0.0,
+                    "peak_right": 0.0
+                });
                 loop {
                     if let Ok(mixer) = mixer_clone.try_lock() {
-                        // Monta o payload EXATAMENTE no formato da interface MixerTickPayload do TypeScript
+                        // VU por canal vem do HashMap (preenchido durante process_audio_block).
+                        let mut levels = serde_json::Map::new();
+                        for (channel_id, vu) in mixer.vu.iter() {
+                            if let Ok(v) = serde_json::to_value(vu) {
+                                levels.insert(channel_id.clone(), v);
+                            }
+                        }
+                        // Master vem do bus master_vu; monitor/retorno ainda não têm streams próprios.
+                        if let Ok(v) = serde_json::to_value(&mixer.master_vu) {
+                            levels.insert("master".to_string(), v);
+                        }
+                        levels
+                            .entry("monitor".to_string())
+                            .or_insert_with(|| zero_vu.clone());
+                        levels
+                            .entry("retorno".to_string())
+                            .or_insert_with(|| zero_vu.clone());
+
                         let payload = serde_json::json!({
                             "channels": mixer.routing.channels,
                             "routing": mixer.routing.routing,
                             "master": mixer.routing.master,
                             "monitor": mixer.routing.monitor,
                             "retorno": mixer.routing.retorno,
-                            "levels": {
-                                "playlist": mixer.playlist_vu,
-                                "master": mixer.master_vu,
-                                // Envia zerado para Monitor e Retorno por enquanto, para não quebrar a UI
-                                "monitor": { "rms_left": 0.0, "rms_right": 0.0, "peak_left": 0.0, "peak_right": 0.0 },
-                                "retorno": { "rms_left": 0.0, "rms_right": 0.0, "peak_left": 0.0, "peak_right": 0.0 }
-                            }
+                            "levels": levels,
                         });
 
-                        // No Tauri v2, emit envia o evento para o frontend
                         let _ = app_handle.emit("mixer:tick", payload);
                     }
-                    
-                    // Dorme 33ms (~30 FPS), desafogando o React e a Placa de Vídeo
+
+                    // Dorme 33ms (~30 FPS), desafogando o React e a placa de vídeo.
                     thread::sleep(Duration::from_millis(33));
                 }
             });

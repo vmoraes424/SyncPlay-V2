@@ -26,6 +26,20 @@ pub struct PlaybackState {
     pub background_positions: HashMap<String, u64>,
 }
 
+impl Default for PlaybackState {
+    fn default() -> Self {
+        Self {
+            current_index: None,
+            current_id: None,
+            is_playing: false,
+            position_ms: 0,
+            duration_ms: 0,
+            background_ids: Vec::new(),
+            background_positions: HashMap::new(),
+        }
+    }
+}
+
 pub enum AudioCommand {
     SetQueue(Vec<AudioItem>),
     PlayIndex(usize),
