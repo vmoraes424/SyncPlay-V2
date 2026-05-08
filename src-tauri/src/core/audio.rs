@@ -284,7 +284,8 @@ fn process_transitions(
     }) else { return; };
 
     if let Some(mix_end) = cur_mix_end {
-        if cur_pos >= mix_end {
+        // Antecipa o mix em 1 segundo (1000ms) para compensar o tempo do crossfade
+        if cur_pos >= mix_end.saturating_sub(1000) {
             let next_idx = cur_idx + 1;
             if let Some(next_item) = queue.get(next_idx).cloned() {
                 if let Some(mut old) = current.take() {
