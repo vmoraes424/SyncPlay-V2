@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { convertFileSrc } from "@tauri-apps/api/core";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import "./App.css";
 import type {
@@ -641,7 +640,6 @@ function App() {
   });
 
   // CUE Player
-  const cueRef = useRef<HTMLAudioElement | null>(null);
   const [cueFile, setCueFile] = useState<string | null>(null);
   const [cuePlaying, setCuePlaying] = useState(false);
   const [cueTime, setCueTime] = useState(0);
@@ -832,31 +830,46 @@ function App() {
     }
   }, [directoryValue, directoryKind, mediaCategory, loadDirectories, directoryOptions]);
 
-  const toggleCue = useCallback((file: DirFile) => {
-    if (!cueRef.current) {
-      cueRef.current = new Audio();
-      cueRef.current.ontimeupdate = () => setCueTime(cueRef.current!.currentTime);
-      cueRef.current.ondurationchange = () => setCueDuration(cueRef.current!.duration);
-      cueRef.current.onended = () => { setCuePlaying(false); setCueTime(0); };
-    }
-    const audio = cueRef.current;
+  const toggleCue = useCallback(async (file: DirFile) => {
+    const cueId = `cue-player`;
+
     if (cueFile === file.path && cuePlaying) {
-      audio.pause(); setCuePlaying(false);
-    } else if (cueFile === file.path && !cuePlaying) {
-      audio.play().then(() => setCuePlaying(true));
+      await invoke("stop_independent", { id: cueId });
+      setCuePlaying(false);
     } else {
-      audio.pause();
-      audio.src = convertFileSrc(file.path);
-      setCueFile(file.path); setCueTime(0);
-      audio.load();
-      audio.play().then(() => setCuePlaying(true)).catch(() => setCuePlaying(false));
+      if (cuePlaying) {
+        await invoke("stop_independent", { id: cueId });
+      }
+
+      const item: PlayableItem = {
+        id: cueId,
+        media_id: file.path,
+        path: file.path,
+        media_type: "music",
+        mixer_bus: "cue",
+        mix_end_ms: null,
+        duration_ms: null,
+        fade_duration_ms: null,
+        fade_out_time_ms: null,
+        manual_fade_out_ms: 100, // fadeout rápido
+      };
+
+      setCueFile(file.path);
+      setCueTime(0);
+      try {
+        await invoke("play_independent", { item });
+        setCuePlaying(true);
+      } catch (err) {
+        console.error("Erro ao tocar cue:", err);
+        setCuePlaying(false);
+      }
     }
   }, [cueFile, cuePlaying]);
 
   const handleCueSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     const t = Number(e.target.value);
-    if (cueRef.current) cueRef.current.currentTime = t;
     setCueTime(t);
+    invoke("seek_independent", { id: "cue-player", positionMs: Math.floor(t * 1000) }).catch(console.error);
   };
 
   const handleSeek = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1025,10 +1038,28 @@ function App() {
           setBackgroundIds(state.background_ids || []);
           setBackgroundPositions(state.background_positions || {});
         }
+
+        // Atualiza estado do CUE
+        const cuePos = state.independent_positions?.["cue-player"];
+        const cueDur = state.independent_durations?.["cue-player"];
+        if (cuePos !== undefined) {
+          setCueTime(cuePos / 1000);
+          if (cueDur) setCueDuration(cueDur / 1000);
+          
+          // Se chegou muito perto do fim (menos de 100ms), consideramos que terminou
+          if (cueDur && cuePos >= cueDur - 100) {
+            setCuePlaying(false);
+            setCueTime(0);
+          }
+        } else if (cuePlaying) {
+          // Se estava tocando mas não veio no state, é porque terminou
+          setCuePlaying(false);
+          setCueTime(0);
+        }
       } catch (e) { console.error(e); }
     }, 33);
     return () => clearInterval(interval);
-  }, []);
+  }, [cuePlaying]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1535,8 +1566,8 @@ function App() {
                           isCuePlaying={isCuePlaying}
                           onSelect={() => {
                             setSelectedFile(file.path);
-                            if (cueRef.current && !isCueing && cuePlaying) {
-                              cueRef.current.pause();
+                            if (!isCueing && cuePlaying) {
+                              invoke("stop_independent", { id: "cue-player" }).catch(console.error);
                               setCuePlaying(false);
                             }
                           }}
@@ -1571,7 +1602,7 @@ function App() {
                 <button
                   className={`shrink-0 bg-white/10 border-none rounded-md px-2 py-1 text-[0.9rem] cursor-pointer transition-colors ${cuePlaying ? "text-red-300" : "text-slate-400"} hover:bg-red-500/30 hover:text-red-300`}
                   onClick={() => {
-                    if (cueRef.current) { cueRef.current.pause(); cueRef.current.currentTime = 0; }
+                    invoke("stop_independent", { id: "cue-player" }).catch(console.error);
                     setCuePlaying(false); setCueTime(0); setCueFile(null);
                   }} title="Parar CUE">⏹</button>
               </div>

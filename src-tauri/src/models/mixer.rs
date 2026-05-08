@@ -6,6 +6,7 @@ pub const CHANNEL_PLAYLIST: &str = "playlist";
 pub const CHANNEL_VEM: &str = "vem";
 pub const CHANNEL_MIC: &str = "mic";
 pub const CHANNEL_LINEIN: &str = "linein";
+pub const CHANNEL_CUE: &str = "cue";
 
 /// Buses de saída
 pub const BUS_MASTER: &str = "master";
@@ -20,6 +21,7 @@ pub const DEFAULT_MIXER_CHANNELS: &[&str] = &[
     CHANNEL_VEM,
     CHANNEL_MIC,
     CHANNEL_LINEIN,
+    CHANNEL_CUE,
 ];
 
 // ---------------------------------------------------------------------------
@@ -106,6 +108,7 @@ impl Default for MixerRouting {
             CHANNEL_VEM,
             CHANNEL_MIC,
             CHANNEL_LINEIN,
+            CHANNEL_CUE,
         ]
         .iter()
         .map(|k| (k.to_string(), ChannelGain::default()))

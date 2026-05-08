@@ -14,6 +14,8 @@ pub struct AudioItem {
     /// Fadeout ao trocar manualmente (espaço ou clique). Música=3000, mídia=1500.
     pub manual_fade_out_ms: Option<u64>,
     pub media_type: Option<String>,
+    /// Permite forçar o áudio para um canal específico do mixer (ex: "cue")
+    pub mixer_bus: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -25,6 +27,8 @@ pub struct PlaybackState {
     pub duration_ms: u64,
     pub background_ids: Vec<String>,
     pub background_positions: HashMap<String, u64>,
+    pub independent_positions: HashMap<String, u64>,
+    pub independent_durations: HashMap<String, u64>,
 }
 
 impl Default for PlaybackState {
@@ -37,6 +41,8 @@ impl Default for PlaybackState {
             duration_ms: 0,
             background_ids: Vec::new(),
             background_positions: HashMap::new(),
+            independent_positions: HashMap::new(),
+            independent_durations: HashMap::new(),
         }
     }
 }
@@ -48,4 +54,10 @@ pub enum AudioCommand {
     Resume,
     Seek(u64),
     SkipWithFade,
+    /// Toca um áudio de forma independente da playlist principal (ex: CUE/Preview, Soundpad)
+    PlayIndependent(AudioItem),
+    /// Para um áudio independente pelo seu ID
+    StopIndependent(String),
+    /// Pula para uma posição específica em um áudio independente
+    SeekIndependent(String, u64),
 }

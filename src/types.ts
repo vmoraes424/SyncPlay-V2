@@ -139,6 +139,8 @@ export interface PlayableItem {
   manual_fade_out_ms: number | null;
   /** Tipo da mídia: "music", "vem", "commercial", etc. */
   media_type: string;
+  /** Permite forçar o áudio para um canal específico do mixer (ex: "cue") */
+  mixer_bus?: string;
 }
 
 export interface ScheduledMusicDto {

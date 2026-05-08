@@ -4,6 +4,7 @@ import { ChannelStrip } from "./ChannelStrip";
 
 export function MixerPanel() {
   const {
+    routing,
     devices,
     getChannelGain,
     getChannelRouting,
@@ -27,7 +28,16 @@ export function MixerPanel() {
       >
         {/* Canais de entrada */}
         <div className="flex shrink-0 flex-row">
-          {CHANNELS.map((ch) => (
+          {Object.keys(routing.channels)
+            .sort((a, b) => {
+              const idxA = CHANNELS.indexOf(a as any);
+              const idxB = CHANNELS.indexOf(b as any);
+              if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+              if (idxA !== -1) return -1;
+              if (idxB !== -1) return 1;
+              return a.localeCompare(b);
+            })
+            .map((ch) => (
             <ChannelStrip
               key={ch}
               channelId={ch}

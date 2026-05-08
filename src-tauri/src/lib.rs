@@ -151,6 +151,9 @@ pub fn run() {
             commands::audio::resume_audio,
             commands::audio::seek_audio,
             commands::audio::skip_with_fade,
+            commands::audio::play_independent,
+            commands::audio::stop_independent,
+            commands::audio::seek_independent,
             commands::audio::get_playback_state,
             // Schedule
             commands::schedule::get_schedule_selection,

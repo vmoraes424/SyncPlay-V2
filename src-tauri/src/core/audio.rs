@@ -99,12 +99,14 @@ pub fn start_audio_engine() -> (
 
     let mixer_for_thread = mixer_tx.clone();
     let playback_for_thread = playback.clone();
+    let shared_routing_for_thread = shared_routing.clone();
     
     thread::spawn(move || {
         engine_loop(
             rx,
             mixer_for_thread,
             playback_for_thread,
+            shared_routing_for_thread,
             target_sample_rate,
             target_channels,
         );
@@ -117,18 +119,20 @@ fn engine_loop(
     rx: mpsc::Receiver<AudioCommand>,
     mixer_tx: Sender<MixerCommand>,
     playback: Arc<Mutex<PlaybackState>>,
+    shared_routing: Arc<Mutex<crate::models::mixer::MixerRouting>>,
     sr: u32,
     ch: u16,
 ) {
     let mut queue: Vec<AudioItem> = Vec::new();
     let mut current: Option<TrackEntry> = None;
     let mut finishing: Vec<TrackEntry> = Vec::new();
+    let mut independent: Vec<TrackEntry> = Vec::new();
 
     loop {
         match rx.recv_timeout(Duration::from_millis(33)) {
             Ok(cmd) => handle_command(
-                cmd, &mut queue, &mut current, &mut finishing,
-                &mixer_tx, &playback, sr, ch,
+                cmd, &mut queue, &mut current, &mut finishing, &mut independent,
+                &mixer_tx, &playback, &shared_routing, sr, ch,
             ),
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
@@ -136,11 +140,11 @@ fn engine_loop(
 
         process_transitions(
             &queue, &mut current, &mut finishing,
-            &mixer_tx, &playback, sr, ch,
+            &mixer_tx, &playback, &shared_routing, sr, ch,
         );
         
         // Limpa tracks que já terminaram de tocar naturalmente ou terminaram o fadeout
-        finishing.retain_mut(|t| {
+        let mut retain_track = |t: &mut TrackEntry| -> bool {
             let mut remove = false;
             if t.finished.load(Ordering::Acquire) {
                 remove = true;
@@ -166,7 +170,10 @@ fn engine_loop(
             } else {
                 true // keep
             }
-        });
+        };
+
+        finishing.retain_mut(&mut retain_track);
+        independent.retain_mut(&mut retain_track);
 
         // Sincroniza estado unificado de posições para UI
         if let Ok(mut s) = playback.lock() {
@@ -183,6 +190,13 @@ fn engine_loop(
                 s.background_ids.push(f.id.clone());
                 s.background_positions.insert(f.id.clone(), track_pos_ms(f, sr, ch));
             }
+
+            s.independent_positions.clear();
+            s.independent_durations.clear();
+            for i in independent.iter() {
+                s.independent_positions.insert(i.id.clone(), track_pos_ms(i, sr, ch));
+                s.independent_durations.insert(i.id.clone(), i.duration_ms);
+            }
         }
     }
 }
@@ -193,8 +207,10 @@ fn handle_command(
     queue: &mut Vec<AudioItem>,
     current: &mut Option<TrackEntry>,
     finishing: &mut Vec<TrackEntry>,
+    independent: &mut Vec<TrackEntry>,
     mixer_tx: &Sender<MixerCommand>,
     playback: &Arc<Mutex<PlaybackState>>,
+    shared_routing: &Arc<Mutex<crate::models::mixer::MixerRouting>>,
     sr: u32,
     ch: u16,
 ) {
@@ -211,7 +227,7 @@ fn handle_command(
                 finishing.push(c);
             }
 
-            if let Some(entry) = make_track_entry(&item, idx, 1.0, mixer_tx, sr, ch) {
+            if let Some(entry) = make_track_entry(&item, idx, 1.0, mixer_tx, shared_routing, sr, ch) {
                 update_playback_started(&entry, &item.id, playback);
                 *current = Some(entry);
             }
@@ -225,6 +241,10 @@ fn handle_command(
                 t.active.store(false, Ordering::Release);
                 let _ = mixer_tx.send(MixerCommand::SetTrackState { id: t.id.clone(), playing: false });
             }
+            for t in independent.iter() {
+                t.active.store(false, Ordering::Release);
+                let _ = mixer_tx.send(MixerCommand::SetTrackState { id: t.id.clone(), playing: false });
+            }
             if let Ok(mut s) = playback.lock() { s.is_playing = false; }
         }
         AudioCommand::Resume => {
@@ -233,6 +253,10 @@ fn handle_command(
                 let _ = mixer_tx.send(MixerCommand::SetTrackState { id: c.id.clone(), playing: true });
             }
             for t in finishing.iter() {
+                t.active.store(true, Ordering::Release);
+                let _ = mixer_tx.send(MixerCommand::SetTrackState { id: t.id.clone(), playing: true });
+            }
+            for t in independent.iter() {
                 t.active.store(true, Ordering::Release);
                 let _ = mixer_tx.send(MixerCommand::SetTrackState { id: t.id.clone(), playing: true });
             }
@@ -264,11 +288,37 @@ fn handle_command(
             }
 
             if let Some(ni) = next_idx.and_then(|i| queue.get(i)).cloned() {
-                if let Some(entry) = make_track_entry(&ni, next_idx.unwrap(), 1.0, mixer_tx, sr, ch) {
+                if let Some(entry) = make_track_entry(&ni, next_idx.unwrap(), 1.0, mixer_tx, shared_routing, sr, ch) {
                     update_playback_started(&entry, &ni.id, playback);
                     *current = Some(entry);
                 }
             } else { clear_playback(playback); }
+        }
+        AudioCommand::PlayIndependent(item) => {
+            if let Some(entry) = make_track_entry(&item, 0, 1.0, mixer_tx, shared_routing, sr, ch) {
+                independent.push(entry);
+            }
+        }
+        AudioCommand::StopIndependent(id) => {
+            if let Some(idx) = independent.iter().position(|t| t.id == id) {
+                let mut t = independent.remove(idx);
+                let fade_ms = t.manual_fade_out_ms;
+                if fade_ms > 0 {
+                    t.fade_out_start_pos_ms = Some(track_pos_ms(&t, sr, ch));
+                    t.fade_out_duration_ms = Some(fade_ms);
+                    finishing.push(t);
+                } else {
+                    stop_entry(Some(t), mixer_tx);
+                }
+            }
+        }
+        AudioCommand::SeekIndependent(id, ms) => {
+            if let Some(t) = independent.iter_mut().find(|t| t.id == id) {
+                let _ = t.decoder.cmd_tx.send(DecoderCmd::Seek(ms));
+                t.position_samples.store(ms_to_samples(ms, sr, ch), Ordering::Release);
+                t.seek_flush_pending.store(true, Ordering::Release);
+                store_volume(&t.volume, 1.0);
+            }
         }
     }
 }
@@ -280,6 +330,7 @@ fn process_transitions(
     finishing: &mut Vec<TrackEntry>,
     mixer_tx: &Sender<MixerCommand>,
     playback: &Arc<Mutex<PlaybackState>>,
+    shared_routing: &Arc<Mutex<crate::models::mixer::MixerRouting>>,
     sr: u32,
     ch: u16,
 ) {
@@ -299,7 +350,7 @@ fn process_transitions(
                     }
                     finishing.push(old);
                 }
-                if let Some(entry) = make_track_entry(&next_item, next_idx, 1.0, mixer_tx, sr, ch) {
+                if let Some(entry) = make_track_entry(&next_item, next_idx, 1.0, mixer_tx, shared_routing, sr, ch) {
                     update_playback_started(&entry, &next_item.id, playback);
                     *current = Some(entry);
                 }
@@ -326,7 +377,7 @@ fn process_transitions(
         }
 
         if let Some(next_item) = queue.get(next_idx).cloned() {
-            if let Some(entry) = make_track_entry(&next_item, next_idx, 1.0, mixer_tx, sr, ch) {
+            if let Some(entry) = make_track_entry(&next_item, next_idx, 1.0, mixer_tx, shared_routing, sr, ch) {
                 update_playback_started(&entry, &next_item.id, playback);
                 *current = Some(entry);
                 return;
@@ -339,7 +390,9 @@ fn process_transitions(
 
 fn make_track_entry(
     item: &AudioItem, index: usize, initial_volume: f32,
-    mixer_tx: &Sender<MixerCommand>, sr: u32, ch: u16,
+    mixer_tx: &Sender<MixerCommand>,
+    shared_routing: &Arc<Mutex<crate::models::mixer::MixerRouting>>,
+    sr: u32, ch: u16,
 ) -> Option<TrackEntry> {
     if !std::path::Path::new(&item.path).is_file() { return None; }
 
@@ -357,9 +410,37 @@ fn make_track_entry(
     let volume = Arc::new(AtomicU32::new(initial_volume.to_bits()));
     let active = Arc::new(AtomicBool::new(true));
 
+    let channel_id = item.mixer_bus.clone().unwrap_or_else(|| {
+        match item.media_type.as_deref() {
+            Some("music") => crate::models::mixer::CHANNEL_PLAYLIST.to_string(),
+            Some(other) => other.to_string(),
+            None => crate::models::mixer::CHANNEL_PLAYLIST.to_string(),
+        }
+    });
+
+    // Garante que o canal exista no roteamento compartilhado
+    {
+        if let Ok(mut routing) = shared_routing.lock() {
+            let mut changed = false;
+            if !routing.channels.contains_key(&channel_id) {
+                routing.channels.insert(channel_id.clone(), crate::models::mixer::ChannelGain::default());
+                changed = true;
+            }
+            if !routing.routing.contains_key(&channel_id) {
+                routing.routing.insert(channel_id.clone(), crate::models::mixer::ChannelRouting::default());
+                changed = true;
+            }
+            if changed {
+                let _ = mixer_tx.send(MixerCommand::UpdateRouting(routing.clone()));
+                // Salvar no disco seria ideal, mas como estamos na thread de áudio,
+                // vamos deixar apenas em memória. O próximo save explícito (ex: alterar volume) salvará.
+            }
+        }
+    }
+
     let track = AudioTrack {
         id: item.id.clone(),
-        channel_id: CHANNEL_PLAYLIST.to_string(),
+        channel_id,
         consumer: cons,
         volume: volume.clone(),
         position_samples: position_samples.clone(),

@@ -7,6 +7,8 @@ import vuMicMuted from "../../assets/vus/volume-mic-off.png";
 import vuMic from "../../assets/vus/volume-mic.png";
 import vuOnAirOff from "../../assets/vus/volume-onair-off.png";
 import vuOnAir from "../../assets/vus/volume-onair.png";
+import vuCueMuted from "../../assets/vus/volume-cue-off.png";
+import vuCue from "../../assets/vus/volume-cue.png";
 import {
   ChannelGain,
   ChannelRouting,
@@ -23,6 +25,7 @@ const CHANNEL_MUTE_ICONS: Partial<Record<ChannelId, { on: string; off: string }>
   vem: { on: vem, off: vemMute },
   mic: { on: vuMic, off: vuMicMuted },
   linein: { on: vuLine, off: vuLineMuted },
+  cue: { on: vuCue, off: vuCueMuted },
 };
 
 const CHANNEL_LABELS: Record<string, string> = {
@@ -30,6 +33,7 @@ const CHANNEL_LABELS: Record<string, string> = {
   vem: "VEM",
   mic: "Mic",
   linein: "Line In",
+  cue: "CUE",
 };
 
 const CHANNEL_COLORS: Record<string, string> = {
@@ -37,6 +41,7 @@ const CHANNEL_COLORS: Record<string, string> = {
   vem: "#ff9800",
   mic: "#f44336",
   linein: "#2196f3",
+  cue: "#9c27b0",
 };
 
 const BTN_BASE =
@@ -67,8 +72,8 @@ export function ChannelStrip({
   onToggleRetorno,
   onToggleOut,
 }: Props) {
-  const label = CHANNEL_LABELS[channelId] ?? channelId;
-  const labelColor = CHANNEL_COLORS[channelId] ?? "#4caf50";
+  const label = CHANNEL_LABELS[channelId] ?? channelId.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+  const labelColor = CHANNEL_COLORS[channelId] ?? "#9e9e9e";
 
   /** Larguras tipo `.vu-vem1` / `.vu-microfone1` (90px) vs padrão (70px). */
   const wideStrip = channelId === "vem" || channelId === "mic";
