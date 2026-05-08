@@ -70,7 +70,7 @@ export function parseAutoMixSettings(raw: Record<string, unknown>): AutoMixSetti
 }
 
 function isAutoMixEligible(item: PlayableItem, settings: AutoMixSettings): boolean {
-  const type = item.media_type.toLowerCase();
+  const type = item.media_type.toLowerCase().trim();
   if (type === 'command' || type === 'commercial' || type === 'vem') return false;
   if (!item.path) return false;
   const isMusic = type === 'music';
@@ -78,7 +78,7 @@ function isAutoMixEligible(item: PlayableItem, settings: AutoMixSettings): boole
 }
 
 function getSensitivity(item: PlayableItem, settings: AutoMixSettings): number {
-  return item.media_type.toLowerCase() === 'music'
+  return item.media_type.toLowerCase().trim() === 'music'
     ? settings.musicMixSensitivity
     : settings.mediaMixSensitivity;
 }

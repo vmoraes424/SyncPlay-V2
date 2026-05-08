@@ -232,7 +232,7 @@ function buildPlaylistRuntimeItems(data: SyncPlayData, mixConfig: MixConfig | nu
         const fade_duration_ms = mediaMixOutMs(music);
         const playPath = music.path?.trim() || music.path_storage?.trim() || '';
 
-        const mediaType = (music.type ?? '').toLowerCase();
+        const mediaType = (music.type ?? '').toLowerCase().trim();
         const fade_out_time_ms =
           mediaType === 'music' ? (mixConfig?.music_fade_out_time ?? 0) :
             mediaType === 'vem' ? 0 :
