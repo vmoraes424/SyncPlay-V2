@@ -37,7 +37,6 @@ export interface MixerStripTemplateProps {
   muteIconSrc: string;
   muteButtonTitle?: string;
   label: string;
-  labelColor: string;
   className?: string;
   style?: CSSProperties;
   /** Sem borda/padding do cartão — uso dentro de ChannelStrip. */
@@ -62,7 +61,6 @@ export function MixerStripTemplate({
   muteIconSrc,
   muteButtonTitle = "Mute",
   label,
-  labelColor,
   className = "",
   style,
   embed = false,
@@ -108,7 +106,7 @@ export function MixerStripTemplate({
         />
       </button>
 
-      <span className="max-w-full truncate text-[9px] font-semibold uppercase tracking-wide" style={{ color: labelColor }}>
+      <span className="max-w-full truncate text-[9px] font-semibold uppercase tracking-wide text-[#6e6e6e]">
         {label}
       </span>
     </div>

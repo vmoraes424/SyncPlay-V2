@@ -40,7 +40,7 @@ const CHANNEL_COLORS: Record<string, string> = {
 };
 
 const BTN_BASE =
-  "flex min-h-[18px] min-w-0 flex-1 items-center justify-center gap-0.5 rounded-sm border border-[#111] bg-linear-to-b from-[#555] to-[#333] px-0.5 py-0.5 font-[Arial,sans-serif] text-[9px] font-bold uppercase tracking-wide text-[#ccc] transition-[background,color,box-shadow] active:scale-[0.97] active:shadow-[inset_0_1px_3px_rgba(0,0,0,0.6)]";
+  "flex min-h-[18px] min-w-0 flex-1 items-center justify-center gap-0.5 rounded-xs border border-[#111] bg-linear-to-b from-[#555] to-[#333] px-0.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-[#2c2c2c] transition-[background,color,box-shadow] active:scale-[0.97] active:shadow-[inset_0_1px_3px_rgba(0,0,0,0.6)]";
 
 interface Props {
   channelId: string;
@@ -92,9 +92,9 @@ export function ChannelStrip({
   return (
     <div
       data-channel={channelId}
-      className={`box-border flex min-h-0 shrink-0 flex-col items-center justify-between border border-[#1a1a1a] bg-(--secondary-gray,#262626) p-2 text-center transition-opacity ${
+      className={`box-border flex min-h-0 shrink-0 flex-col items-center justify-between border border-[#1a1a1a] bg-(--secondary-gray,#353535) p-2 text-center transition-opacity ${
         wideStrip ? "w-[90px] min-w-[90px]" : "w-[70px] min-w-[70px]"
-      } ${gain.muted ? "opacity-50" : "opacity-100"}`}
+      }`}
     >
       <div className="vu-top-controls flex w-full flex-col gap-1.5">
         <div className="flex w-full gap-[5px]">
@@ -178,7 +178,6 @@ export function ChannelStrip({
         muteIconSrc={muteIconSrc}
         muteButtonTitle={muteButtonTitle}
         label={label}
-        labelColor={labelColor}
       />
     </div>
   );

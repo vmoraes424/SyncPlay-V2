@@ -23,10 +23,6 @@ export function MixerPanel() {
 
   return (
     <div className="mixer-panel">
-      <div className="mixer-panel__title">
-        <span>MIXER</span>
-      </div>
-
       <div className="mixer-panel__body">
         {/* Canais de entrada */}
         <div className="mixer-panel__channels">
@@ -46,9 +42,6 @@ export function MixerPanel() {
             />
           ))}
         </div>
-
-        {/* Separador */}
-        <div className="mixer-panel__sep" />
 
         {/* Buses de saída */}
         <div className="mixer-panel__buses">

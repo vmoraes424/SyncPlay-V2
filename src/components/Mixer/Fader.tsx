@@ -124,12 +124,12 @@ export function Fader({
           }}
         >
           <img
-            className={`pointer-events-none block h-auto max-h-9 w-full object-contain ${dragging ? "brightness-110" : ""}`}
+            className={`pointer-events-none block h-auto max-h-8 w-full object-contain ${dragging ? "brightness-110" : ""}`}
             src={thumbSrc}
             alt=""
             draggable={false}
           />
-          <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] leading-none bg-[#aaa] text-black">
+          <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 whitespace-nowrap text-[8px] leading-none bg-[#aaa] text-black">
             {formatDb(value)}
           </span>
         </div>

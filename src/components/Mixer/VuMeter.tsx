@@ -111,7 +111,7 @@ function VuMeterSide({
       title={title}
       role="img"
       aria-label={title}
-      style={{ display: "block", borderRadius: 0 }}
+      style={{ display: "block", borderRadius: 0  }}
     />
   );
 }

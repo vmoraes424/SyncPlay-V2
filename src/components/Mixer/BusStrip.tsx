@@ -90,7 +90,7 @@ export function BusStrip({
   return (
     <MixerStripTemplate
       header={header}
-      className="w-[78px] min-w-[78px] shrink-0 rounded"
+      className="w-[78px] min-w-[78px] shrink-0"
       style={{ background: bg }}
       faderValue={config.gain}
       onFaderChange={onSetGain}
@@ -103,7 +103,6 @@ export function BusStrip({
       muteIconSrc={muteIconSrc}
       muteButtonTitle={config.muted ? "Unmute" : "Mute"}
       label={label}
-      labelColor={labelColor}
     />
   );
 }
