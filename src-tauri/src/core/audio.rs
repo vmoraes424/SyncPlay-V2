@@ -184,10 +184,12 @@ fn engine_loop(
 
             s.background_ids.clear();
             s.background_positions.clear();
+            s.background_durations.clear();
 
             for f in finishing.iter() {
                 s.background_ids.push(f.id.clone());
                 s.background_positions.insert(f.id.clone(), track_pos_ms(f, sr, ch));
+                s.background_durations.insert(f.id.clone(), f.duration_ms);
             }
 
             s.independent_positions.clear();
@@ -395,7 +397,7 @@ fn process_transitions(
             if let Some(next_item) = queue.get(next_idx).cloned() {
                 if let Some(mut old) = current.take() {
                     if cur_fade_out_time > 0 {
-                        old.fade_out_start_pos_ms = Some(cur_pos);
+                        old.fade_out_start_pos_ms = Some(mix_end);
                         old.fade_out_duration_ms = Some(cur_fade_out_time);
                     }
                     finishing.push(old);
@@ -410,7 +412,7 @@ fn process_transitions(
             // Se não tem próxima música, faz fadeout no mix_end
             if cur_fade_out_time > 0 {
                 if let Some(mut old) = current.take() {
-                    old.fade_out_start_pos_ms = Some(cur_pos);
+                    old.fade_out_start_pos_ms = Some(mix_end);
                     old.fade_out_duration_ms = Some(cur_fade_out_time);
                     finishing.push(old);
                 }

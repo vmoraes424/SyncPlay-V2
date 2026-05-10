@@ -436,6 +436,7 @@ function App() {
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [backgroundIds, setBackgroundIds] = useState<string[]>([]);
   const [backgroundPositions, setBackgroundPositions] = useState<Record<string, number>>({});
+  const [backgroundDurations, setBackgroundDurations] = useState<Record<string, number>>({});
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -1033,10 +1034,12 @@ function App() {
           setIsPlaying(state.is_playing);
           setBackgroundIds(state.background_ids || []);
           setBackgroundPositions(state.background_positions || {});
+          setBackgroundDurations(state.background_durations || {});
         } else {
           setPlayingId(null); setIsPlaying(false);
           setBackgroundIds(state.background_ids || []);
           setBackgroundPositions(state.background_positions || {});
+          setBackgroundDurations(state.background_durations || {});
         }
 
         // Atualiza estado do CUE
@@ -1306,7 +1309,7 @@ function App() {
                                               isDisabled={isDisabled}
                                               isPlaying={isPlaying}
                                               currentTime={currentTime}
-                                              duration={duration}
+                                              duration={isBackgroundPlaying && backgroundDurations[uniqueId] ? backgroundDurations[uniqueId] / 1000 : duration}
                                               backgroundPosition={backgroundPositions[uniqueId] ?? 0}
                                               onPlay={() => togglePlay(uniqueId)}
                                               onSeek={handleSeek}

@@ -27,6 +27,7 @@ pub struct PlaybackState {
     pub duration_ms: u64,
     pub background_ids: Vec<String>,
     pub background_positions: HashMap<String, u64>,
+    pub background_durations: HashMap<String, u64>,
     pub independent_positions: HashMap<String, u64>,
     pub independent_durations: HashMap<String, u64>,
 }
@@ -41,6 +42,7 @@ impl Default for PlaybackState {
             duration_ms: 0,
             background_ids: Vec::new(),
             background_positions: HashMap::new(),
+            background_durations: HashMap::new(),
             independent_positions: HashMap::new(),
             independent_durations: HashMap::new(),
         }
