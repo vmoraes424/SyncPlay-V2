@@ -17,10 +17,12 @@ const WINDOW_STATE_PATH: &str = "C:/SyncPlay/Configs/window_state.json";
 pub fn run() {
     // 1. Inicia o Estado Global com a nova arquitetura do DigitalMixer
     let app_state = crate::state::AppState::new();
+    let playlist_watch_state = crate::commands::playlist_watch::PlaylistWatchState::new();
 
     tauri::Builder::default()
         // Registra o estado para ser usado nos Comandos
         .manage(app_state)
+        .manage(playlist_watch_state)
         .setup(|app| {
             let app_handle = app.handle().clone();
 
@@ -144,6 +146,8 @@ pub fn run() {
             commands::settings::get_app_setting,
             commands::settings::write_app_settings,
             commands::settings::list_directories,
+            commands::playlist_watch::watch_playlist_file,
+            commands::playlist_watch::stop_playlist_watch,
             // Audio playback
             commands::audio::set_queue,
             commands::audio::play_index,

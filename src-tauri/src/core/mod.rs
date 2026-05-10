@@ -1,3 +1,4 @@
+pub mod paths;
 pub mod audio;
 pub mod decoder;
 pub mod dsp;

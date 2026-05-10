@@ -6,6 +6,8 @@ pub type AppResult<T> = Result<T, AppError>;
 
 #[derive(Debug, Error)]
 pub enum AppError {
+    #[error("Playlist do dia {date} não encontrada! Assim que estiver disponível a playlist será carregada/executada automaticamente, de acordo com a configuração.")]
+    PlaylistNotFound { date: String, dir: &'static str },
     #[error("Erro de I/O: {0}")]
     Io(String),
     #[error("Erro de JSON: {0}")]

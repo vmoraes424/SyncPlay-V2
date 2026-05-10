@@ -1330,6 +1330,12 @@ function App() {
                                                   }
                                                   : undefined
                                               }
+                                              onSkipNextFromRow={() => {
+                                                const q = playableItemsRef.current;
+                                                const idx = q.findIndex((i) => i.id === uniqueId);
+                                                if (idx === -1) return;
+                                                invoke("play_index", { index: idx + 1 }).catch(console.error);
+                                              }}
                                             />
                                         </div>
                                       );

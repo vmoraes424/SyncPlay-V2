@@ -12,7 +12,6 @@ use crossbeam_channel::{unbounded, Sender}; // Canal de comandos
 use crate::core::decoder::{DecoderCmd, TrackDecoder};
 use crate::core::mixer::{store_volume, AudioTrack, DigitalMixer, MixerCommand};
 use crate::models::audio::{AudioCommand, AudioItem, PlaybackState};
-use crate::models::mixer::CHANNEL_PLAYLIST;
 
 const PREBUFFER_SECONDS: usize = 1;
 
@@ -202,6 +201,45 @@ fn engine_loop(
 }
 
 #[allow(clippy::too_many_arguments)]
+fn skip_with_fade_to_target_index(
+    target_index: Option<usize>,
+    queue: &[AudioItem],
+    current: &mut Option<TrackEntry>,
+    finishing: &mut Vec<TrackEntry>,
+    mixer_tx: &Sender<MixerCommand>,
+    playback: &Arc<Mutex<PlaybackState>>,
+    shared_routing: &Arc<Mutex<crate::models::mixer::MixerRouting>>,
+    sr: u32,
+    ch: u16,
+) {
+    let fade_ms = current.as_ref().map(|c| c.manual_fade_out_ms).unwrap_or(1500);
+
+    if let Some(mut c) = current.take() {
+        if fade_ms > 0 {
+            c.fade_out_start_pos_ms = Some(track_pos_ms(&c, sr, ch));
+            c.fade_out_duration_ms = Some(fade_ms);
+        }
+        finishing.push(c);
+    }
+
+    let Some(ti) = target_index else {
+        clear_playback(playback);
+        return;
+    };
+
+    if let Some(item) = queue.get(ti).cloned() {
+        if let Some(entry) = make_track_entry(&item, ti, 1.0, mixer_tx, shared_routing, sr, ch) {
+            update_playback_started(&entry, &item.id, playback);
+            *current = Some(entry);
+        } else {
+            clear_playback(playback);
+        }
+    } else {
+        clear_playback(playback);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn handle_command(
     cmd: AudioCommand,
     queue: &mut Vec<AudioItem>,
@@ -217,8 +255,25 @@ fn handle_command(
     match cmd {
         AudioCommand::SetQueue(items) => *queue = items,
         AudioCommand::PlayIndex(idx) => {
-            let Some(item) = queue.get(idx).cloned() else { return };
-            
+            if idx >= queue.len() {
+                skip_with_fade_to_target_index(
+                    None,
+                    queue,
+                    current,
+                    finishing,
+                    mixer_tx,
+                    playback,
+                    shared_routing,
+                    sr,
+                    ch,
+                );
+                return;
+            }
+
+            let Some(item) = queue.get(idx).cloned() else {
+                return;
+            };
+
             if let Some(mut c) = current.take() {
                 if c.manual_fade_out_ms > 0 {
                     c.fade_out_start_pos_ms = Some(track_pos_ms(&c, sr, ch));
@@ -276,23 +331,18 @@ fn handle_command(
             if let Ok(mut s) = playback.lock() { s.position_ms = ms; }
         }
         AudioCommand::SkipWithFade => {
-            let fade_ms = current.as_ref().map(|c| c.manual_fade_out_ms).unwrap_or(1500);
-            let next_idx = current.as_ref().map(|c| c.index + 1);
-
-            if let Some(mut c) = current.take() {
-                if fade_ms > 0 {
-                    c.fade_out_start_pos_ms = Some(track_pos_ms(&c, sr, ch));
-                    c.fade_out_duration_ms = Some(fade_ms);
-                }
-                finishing.push(c);
-            }
-
-            if let Some(ni) = next_idx.and_then(|i| queue.get(i)).cloned() {
-                if let Some(entry) = make_track_entry(&ni, next_idx.unwrap(), 1.0, mixer_tx, shared_routing, sr, ch) {
-                    update_playback_started(&entry, &ni.id, playback);
-                    *current = Some(entry);
-                }
-            } else { clear_playback(playback); }
+            let target_index = current.as_ref().map(|c| c.index + 1);
+            skip_with_fade_to_target_index(
+                target_index,
+                queue,
+                current,
+                finishing,
+                mixer_tx,
+                playback,
+                shared_routing,
+                sr,
+                ch,
+            );
         }
         AudioCommand::PlayIndependent(item) => {
             if let Some(entry) = make_track_entry(&item, 0, 1.0, mixer_tx, shared_routing, sr, ch) {

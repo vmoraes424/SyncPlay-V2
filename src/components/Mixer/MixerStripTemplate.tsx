@@ -76,7 +76,7 @@ export function MixerStripTemplate({
 
       <div className="flex w-full shrink-0 flex-row items-end justify-center gap-1">
         {showDbScale ? <DbScale height={faderHeight} /> : null}
-        <div className="flex shrink-0 flex-col items-center">
+        <div className="flex shrink-0 flex-col items-center mr-2">
           <Fader
             value={faderValue}
             onChange={onFaderChange}

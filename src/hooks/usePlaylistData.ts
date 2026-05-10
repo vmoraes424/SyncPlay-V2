@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { MixConfig, Music, SyncPlayData } from "../types";
 import { getAppSetting } from "../settings/settingsStorage";
 
@@ -38,6 +39,17 @@ async function fetchConfigSafe<T>(filename: string): Promise<T | null> {
   } catch {
     return null;
   }
+}
+
+/** Extrai texto útil do erro devolvido pelo invoke do Tauri. */
+function formatInvokeError(err: unknown): string {
+  if (typeof err === 'string') return err;
+  if (err instanceof Error && err.message) return err.message;
+  if (err && typeof err === 'object' && 'message' in err) {
+    const msg = (err as { message: unknown }).message;
+    if (typeof msg === 'string') return msg;
+  }
+  return String(err);
 }
 
 function formatPlaylistDate(date: Date) {
@@ -299,8 +311,9 @@ export function usePlaylistData({ anchorMusicId }: UsePlaylistDataOptions) {
     } catch (err) {
       setPlaylistExtraAfterBlocks(0);
       setPlaylistShowAllTail(false);
-      setError(`Erro ao carregar a playlist: ${err}`);
+      setError(formatInvokeError(err));
       setData(null);
+      void invoke("watch_playlist_file", { date }).catch(() => {});
     } finally {
       setLoading(false);
     }
@@ -338,7 +351,8 @@ export function usePlaylistData({ anchorMusicId }: UsePlaylistDataOptions) {
       }
       return true;
     } catch (err) {
-      setPlaylistAppendError(`Erro ao carregar a playlist: ${err}`);
+      setPlaylistAppendError(formatInvokeError(err));
+      void invoke("watch_playlist_file", { date: nextDate }).catch(() => {});
       return false;
     } finally {
       appendInFlightRef.current = false;
@@ -391,6 +405,22 @@ export function usePlaylistData({ anchorMusicId }: UsePlaylistDataOptions) {
 
   useEffect(() => {
     void fetchPlaylist(todayPlaylistDate());
+  }, [fetchPlaylist]);
+
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined;
+    void listen<{ date: string }>("playlist-file-available", (event) => {
+      const d = event.payload.date;
+      if (typeof d === "string" && d.length > 0) {
+        void fetchPlaylist(d);
+      }
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      void invoke("stop_playlist_watch").catch(() => {});
+      unlisten?.();
+    };
   }, [fetchPlaylist]);
 
   return {

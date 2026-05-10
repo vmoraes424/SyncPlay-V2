@@ -1,5 +1,8 @@
 use crate::core::files::{list_audio_files_in_directories, read_text_file_lossy};
+use crate::core::paths::PLAYLISTS_DIR;
+use crate::error::AppError;
 use std::fs;
+use std::io::ErrorKind;
 use crate::core::playlist::enrich_playlist_json_with_block_duration_totals;
 use crate::core::settings::{load_app_settings_from_disk, write_app_settings_to_disk};
 use crate::error::AppResult;
@@ -8,7 +11,22 @@ use serde_json::Value;
 
 #[tauri::command]
 pub fn read_playlist(date: &str) -> AppResult<String> {
-    let text = read_text_file_lossy(&format!("C:/SyncPlay/Playlists/{}.json", date))?;
+    let path = format!("{}/{}.json", PLAYLISTS_DIR, date);
+    let bytes = fs::read(&path).map_err(|e| {
+        if e.kind() == ErrorKind::NotFound {
+            AppError::PlaylistNotFound {
+                date: date.to_string(),
+                dir: PLAYLISTS_DIR,
+            }
+        } else {
+            AppError::Io(e.to_string())
+        }
+    })?;
+    let text = if let Ok(utf8_str) = String::from_utf8(bytes.clone()) {
+        utf8_str
+    } else {
+        bytes.into_iter().map(|b| b as char).collect()
+    };
     let mut root: Value = serde_json::from_str(&text)?;
     enrich_playlist_json_with_block_duration_totals(&mut root);
     Ok(serde_json::to_string(&root)?)

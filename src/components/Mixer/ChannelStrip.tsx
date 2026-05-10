@@ -45,7 +45,7 @@ const CHANNEL_COLORS: Record<string, string> = {
 };
 
 const BTN_BASE =
-  "flex min-h-[18px] min-w-0 flex-1 items-center justify-center gap-0.5 rounded-xs border border-[#111] bg-linear-to-b from-[#555] to-[#333] px-0.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-[#2c2c2c] transition-[background,color,box-shadow] active:scale-[0.97] active:shadow-[inset_0_1px_3px_rgba(0,0,0,0.6)]";
+  "flex min-h-[18px] min-w-0 flex-1 items-center justify-center gap-0.5 rounded-xs border border-[#111] cursor-pointer bg-linear-to-b from-[#555] to-[#333] px-0.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-[#2c2c2c] transition-[background,color,box-shadow] active:scale-[0.97] active:shadow-[inset_0_1px_3px_rgba(0,0,0,0.6)]";
 
 interface Props {
   channelId: string;
@@ -97,19 +97,17 @@ export function ChannelStrip({
   return (
     <div
       data-channel={channelId}
-      className={`box-border flex min-h-0 shrink-0 flex-col items-center justify-between border border-[#1a1a1a] bg-(--secondary-gray,#353535) p-2 text-center transition-opacity ${
-        wideStrip ? "w-[90px] min-w-[90px]" : "w-[70px] min-w-[70px]"
-      }`}
+      className={`box-border flex min-h-0 shrink-0 flex-col items-center justify-between border border-[#1a1a1a] bg-(--secondary-gray,#353535) p-2 text-center transition-opacity ${wideStrip ? "w-[90px] min-w-[90px]" : "w-[70px] min-w-[70px]"
+        }`}
     >
       <div className="vu-top-controls flex w-full flex-col gap-1.5">
         <div className="flex w-full gap-[5px]">
           <button
             type="button"
-            className={`${BTN_BASE} w-full flex-initial ${
-              routing.out
-                ? "bg-linear-to-b from-[#1a3a1a] to-[#0a2a0a] text-green-300"
-                : ""
-            }`}
+            className={`${BTN_BASE} w-full flex-initial ${routing.out
+              ? "bg-linear-to-b from-[#1a3a1a] to-[#0a2a0a] text-green-300"
+              : ""
+              }`}
             onClick={onToggleOut}
             title="Arm saída (placa). Desligado: só VU no fader, sem áudio no DAC."
           >
@@ -124,11 +122,10 @@ export function ChannelStrip({
 
         <button
           type="button"
-          className={`${BTN_BASE} w-full flex-initial ${
-            routing.master
-              ? "bg-linear-to-b from-[#2a4a2a] to-[#1a3a1a] text-green-300"
-              : ""
-          }`}
+          className={`${BTN_BASE} w-full flex-initial ${routing.master
+            ? "bg-linear-to-b from-[#2a4a2a] to-[#1a3a1a] text-green-300"
+            : ""
+            }`}
           onClick={onToggleMaster}
           title="Rota Master (PGM)"
         >
@@ -138,31 +135,33 @@ export function ChannelStrip({
         <div className="bottom-buttons flex w-full gap-[5px]">
           <button
             type="button"
-            className={`${BTN_BASE} ${
-              routing.monitor
-                ? "bg-linear-to-b from-[#3e2a10] to-[#2a1a08] text-[#d2952f]"
-                : ""
-            }`}
+            className={`${BTN_BASE} ${routing.monitor
+              ? "bg-linear-to-b from-[#3e2a10] to-[#2a1a08] text-[#d2952f]"
+              : ""
+              }`}
             onClick={onToggleMonitor}
             title="Rota Monitor"
           >
-            <svg viewBox="0 0 16 16" fill="currentColor" width={12} height={12} aria-hidden>
-              <path d="M3 2a1 1 0 00-1 1v8a1 1 0 001 1h4v2H5v1h6v-1H9v-2h4a1 1 0 001-1V3a1 1 0 00-1-1H3zm0 1h10v8H3V3z" />
+            <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px"
+              fill="currentColor">
+              <path
+                d="M680-80H280q-33 0-56.5-23.5T200-160v-640q0-33 23.5-56.5T280-880h400q33 0 56.5 23.5T760-800v640q0 33-23.5 56.5T680-80Zm0-80v-640H280v640h400ZM480-600q33 0 56.5-23.5T560-680q0-33-23.5-56.5T480-760q-33 0-56.5 23.5T400-680q0 33 23.5 56.5T480-600Zm0 400q66 0 113-47t47-113q0-66-47-113t-113-47q-66 0-113 47t-47 113q0 66 47 113t113 47Zm0-80q-33 0-56.5-23.5T400-360q0-33 23.5-56.5T480-440q33 0 56.5 23.5T560-360q0 33-23.5 56.5T480-280ZM280-800v640-640Z" />
             </svg>
           </button>
 
           <button
             type="button"
-            className={`${BTN_BASE} ${
-              routing.retorno
-                ? "bg-linear-to-b from-[#2a3a3a] to-[#1a2a2a] text-white"
-                : ""
-            }`}
+            className={`${BTN_BASE} ${routing.retorno
+              ? "bg-linear-to-b from-[#2a3a3a] to-[#1a2a2a] text-white"
+              : ""
+              }`}
             onClick={onToggleRetorno}
             title="Retorno (fone)"
           >
-            <svg viewBox="0 0 16 16" fill="currentColor" width={12} height={12} aria-hidden>
-              <path d="M8 1a7 7 0 100 14A7 7 0 008 1zM3 8a5 5 0 0110 0h-1.5A3.5 3.5 0 004.5 8H3zm1 0a4 4 0 018 0h-2a2 2 0 00-4 0H4z" />
+            <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px"
+              fill="currentColor">
+              <path
+                d="M240-80q62 0 101.5-31t60.5-91q17-50 32.5-70t71.5-64q62-50 98-113t36-151q0-119-80.5-199.5T360-880q-119 0-199.5 80.5T80-600h80q0-85 57.5-142.5T360-800q85 0 142.5 57.5T560-600q0 68-27 116t-77 86q-52 38-81 74t-43 78q-14 44-33.5 65T240-160q-33 0-56.5-23.5T160-240H80q0 66 47 113t113 47Zm120-420q42 0 71-29.5t29-70.5q0-42-29-71t-71-29q-42 0-71 29t-29 71q0 41 29 70.5t71 29.5Zm380 121-59-59q19-37 29-77.5t10-84.5q0-44-10-84t-29-77l59-59q29 49 44.5 104.5T800-600q0 61-15.5 116.5T740-379Zm117 116-59-58q39-60 60.5-130T880-598q0-78-22-148.5T797-877l60-60q49 72 76 157.5T960-600q0 94-27 179.5T857-263Z" />
             </svg>
           </button>
         </div>

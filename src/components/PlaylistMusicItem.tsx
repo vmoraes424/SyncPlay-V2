@@ -187,6 +187,8 @@ interface PlaylistMusicItemProps {
   showTrashSkipIcon?: boolean;
   onPlaylistItemSelect?: () => void;
   onTrashRemove?: () => void;
+  /** Próxima faixa na fila após esta linha (fade); ícone na lista — diferente do skip global (faixa atual). */
+  onSkipNextFromRow?: () => void;
   filterVisibility: PlaylistFilterVisibility;
   libraryYearDecade: boolean;
   showMusicFileName: boolean;
@@ -216,6 +218,7 @@ export function PlaylistMusicItem({
   showTrashSkipIcon = false,
   onPlaylistItemSelect,
   onTrashRemove,
+  onSkipNextFromRow,
   filterVisibility,
   libraryYearDecade,
   showMusicFileName,
@@ -749,6 +752,10 @@ export function PlaylistMusicItem({
               ev.stopPropagation();
               if (trashHighlighted && onTrashRemove) {
                 onTrashRemove();
+                return;
+              }
+              if (onSkipNextFromRow) {
+                onSkipNextFromRow();
                 return;
               }
               invoke("skip_with_fade").catch(console.error);
