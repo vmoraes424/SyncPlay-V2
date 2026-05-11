@@ -121,7 +121,23 @@ export interface Playlist {
   blocks: Record<string, Block>;
 }
 
+/** Metadados do arquivo de playlist (SyncPlay), ex.: `header.extra.branch_*`. */
+export interface SyncPlayHeaderExtra {
+  station?: string;
+  company_img?: string;
+  branch_name?: string;
+  branch_img?: string;
+}
+
+export interface SyncPlayHeader {
+  date?: string;
+  day?: string;
+  type?: string;
+  extra?: SyncPlayHeaderExtra;
+}
+
 export interface SyncPlayData {
+  header?: SyncPlayHeader;
   playlists: Record<string, Playlist>;
 }
 

@@ -1,5 +1,31 @@
 const DAY_SECONDS = 86_400;
 
+const WEEKDAYS_SHORT_PT = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'] as const;
+const MONTHS_PT = [
+  'Janeiro',
+  'Fevereiro',
+  'Março',
+  'Abril',
+  'Maio',
+  'Junho',
+  'Julho',
+  'Agosto',
+  'Setembro',
+  'Outubro',
+  'Novembro',
+  'Dezembro',
+] as const;
+
+/** Rótulo do dia da playlist a partir de `YYYY-MM-DD`, ex.: `Seg, 11 Maio`. */
+export function formatPlaylistDayShortPt(dateYmd: string) {
+  const [y, m, d] = dateYmd.split('-').map(Number);
+  if (!y || !m || !d) return '';
+  const date = new Date(y, m - 1, d);
+  const wd = WEEKDAYS_SHORT_PT[date.getDay()];
+  const monthName = MONTHS_PT[date.getMonth()];
+  return `${wd}, ${d} ${monthName}`;
+}
+
 export function normalizeSecondsOfDay(seconds: number) {
   if (!Number.isFinite(seconds)) return 0;
   return ((Math.floor(seconds) % DAY_SECONDS) + DAY_SECONDS) % DAY_SECONDS;

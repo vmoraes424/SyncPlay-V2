@@ -145,7 +145,7 @@ export function MixerStripTemplate({
           />
         </button>
 
-        <span className="max-w-full truncate text-[9px] font-semibold uppercase tracking-wide text-[#6e6e6e]">
+        <span className="max-w-full text-[9px] font-semibold uppercase tracking-wide text-[#6e6e6e]">
           {label}
         </span>
       </div>

@@ -30,7 +30,7 @@ const CHANNEL_MUTE_ICONS: Partial<Record<ChannelId, { on: string; off: string }>
 
 const CHANNEL_LABELS: Record<string, string> = {
   playlist: "Playlist",
-  vem: "VEM",
+  vem: "V.E.M.",
   mic: "Mic",
   linein: "Line In",
   cue: "CUE",

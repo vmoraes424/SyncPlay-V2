@@ -1,13 +1,17 @@
-import type { CSSProperties, Dispatch, RefObject, SetStateAction } from 'react';
+import { useEffect, useState, type CSSProperties, type Dispatch, type RefObject, type SetStateAction } from 'react';
 import type { Virtualizer } from '@tanstack/react-virtual';
 import { invoke } from '@tauri-apps/api/core';
-import { formatTime } from '../../time';
+import { formatPlaylistDayShortPt, formatTime } from '../../time';
 import type { DirFile, DirectoryOption, DirectoryOptionKind, MediaCategory } from '../../types';
 import type { LibMusicFiltersState } from '../../hooks/useSyncplayLibrary';
 import { LibraryMediaListItem } from './LibraryMediaListItem';
 
 export interface LibraryColumnProps {
   col2Style: CSSProperties;
+  /** Data da playlist carregada (`YYYY-MM-DD`), exibe abaixo do nome da filial. */
+  playlistDateYmd: string;
+  branchName?: string;
+  branchImgUrl?: string;
   libraryYearDecade: boolean;
   mediaCategory: MediaCategory;
   setMediaCategory: Dispatch<SetStateAction<MediaCategory>>;
@@ -52,6 +56,9 @@ export function LibraryColumn({
   directoryValue,
   setDirectoryValue,
   setDirectoryKind,
+  playlistDateYmd,
+  branchName,
+  branchImgUrl,
   libMusicFilterIds,
   setLibMusicFilterIds,
   resetLibMusicFilters,
@@ -79,14 +86,52 @@ export function LibraryColumn({
   toggleCue,
   handleCueSeek,
 }: LibraryColumnProps) {
+  const dayLabel = formatPlaylistDayShortPt(playlistDateYmd);
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  const ss = String(now.getSeconds()).padStart(2, '0');
+
   return (
     <div
       id="midias"
       className="flex flex-col overflow-hidden p-0 bg-[#262626]"
       style={col2Style}
     >
-      <div className="px-5 pt-5 pb-3 border-b border-[#353535] flex flex-col gap-2.5 shrink-0">
-        <h2 className="text-[1rem] font-semibold text-slate-400 tracking-[0.04em] uppercase">📂 Biblioteca de Mídias</h2>
+      <div className="border-b border-[#353535] flex flex-col gap-2.5 shrink-0">
+        <div className="flex items-center justify-between gap-3 min-w-0 pr-2 ">
+          <div className="flex items-center gap-1 min-w-0 flex-1">
+            {branchImgUrl ? (
+              <img
+                src={branchImgUrl}
+                alt=""
+                className="w-14 h-14 rounded-lg object-cover bg-black/25 shrink-0 border border-[#353535]"
+              />
+            ) : null}
+            <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+              {branchName ? (
+                <span className="text-[10px] font-semibold text-white">{branchName}</span>
+              ) : null}
+              {dayLabel ? (
+                <span className="text-sm text-white font-bold leading-snug">{dayLabel}</span>
+              ) : null}
+            </div>
+          </div>
+          <div
+            className="flex items-baseline shrink-0 tabular-nums leading-none text-white/90"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            <span className="text-4xl font-semibold tracking-tight">{hh}:{mm}</span>
+            <span className="text-xs font-medium text-[#818181]">:{ss}</span>
+          </div>
+        </div>
         <div className="flex gap-2">
           <select
             className="flex-1 bg-white/5 border border-[#353535] rounded-lg px-3 py-1.5 text-white/90 text-[0.8rem] outline-none transition-colors focus:border-neutral-500 [&>option]:bg-[#262626] [&>option]:text-white"

@@ -944,7 +944,7 @@ function App() {
       {/* Wrapper das 3 colunas */}
       <div
         ref={headerRef}
-        className="flex h-[calc(100vh-50px)] bg-[#262626]"
+        className="flex h-[calc(100vh-40px)] bg-[#262626] border-t-4 border-[#353535]"
         style={{ overflow: 'hidden' }}
       >
 
@@ -1003,6 +1003,9 @@ function App() {
 
         <LibraryColumn
           col2Style={col2Style}
+          playlistDateYmd={playlistBaseDate}
+          branchName={data?.header?.extra?.branch_name?.trim() || undefined}
+          branchImgUrl={data?.header?.extra?.branch_img?.trim() || undefined}
           libraryYearDecade={libraryYearDecade}
           mediaCategory={mediaCategory}
           setMediaCategory={setMediaCategory}
