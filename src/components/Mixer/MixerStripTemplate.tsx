@@ -71,7 +71,7 @@ export function MixerStripTemplate({
   style,
   embed = false,
 }: MixerStripTemplateProps) {
-  const chrome = embed ? "" : "border border-[#1a1a1a] p-2 rounded";
+  const chrome = embed ? "" : "border border-[#1a1a1a] p-2";
 
   const faderValueRef = useRef(faderValue);
   useEffect(() => {
@@ -104,7 +104,7 @@ export function MixerStripTemplate({
 
   return (
     <div
-      className={`box-border flex min-h-0 shrink-0 flex-col items-center gap-1.5 text-center transition-opacity ${chrome} ${className}`}
+      className={`box-border flex min-h-0 h-[270px] shrink-0 flex-col items-center gap-1.5 text-center transition-opacity ${chrome} ${className}`}
       style={style}
     >
       {header}

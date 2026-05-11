@@ -8,20 +8,22 @@ import type {
   PlayableItem, ScheduledBlockDto, ScheduleMediaDiscardDto, ScheduleMediaStartDto, ScheduleSelectionDto,
   MixConfig, AutoMixSettings,
 } from './types';
-import { BlockHeader } from './components/BlockHeader';
-import { PlaylistMusicItem } from './components/PlaylistMusicItem';
-import { MusicInfo } from './components/playlist/MusicInfo';
-import { PlaylistCurrentBlock } from './components/playlist/PlaylistCurrentBlock';
-import { PlaylistLoadMoreControls } from './components/playlist/PlaylistLoadMoreControls';
-import { PlaylistPlaybackBar } from './components/playlist/PlaylistPlaybackBar';
 import { SettingsDock } from './components/settings/SettingsDock';
-import { MixerPanel } from './components/Mixer';
+import { LibraryColumn } from './components/layout/LibraryColumn';
+import { MixerColumn } from './components/layout/MixerColumn';
+import { PlaylistColumn } from './components/layout/PlaylistColumn';
 import { SECONDS_PER_DAY, usePlaylistData } from './hooks/usePlaylistData';
 import { useSyncplayLibrary } from './hooks/useSyncplayLibrary';
-import { formatSecondsOfDay, formatTime } from './time';
+import { formatSecondsOfDay } from './time';
 import { SyncplayLibraryProvider } from './library/SyncplayLibraryContext';
 import { useAutoMixDetection, parseAutoMixSettings } from './hooks/useAutoMixDetection';
 import { useColumnResize } from './hooks/useColumnResize';
+import {
+  blockMediaRecord,
+  getBlockDisplayStart,
+  legacyBool,
+  mediaDurationMs,
+} from './playlist/playlistBlockHelpers';
 
 async function fetchConfigSafe<T>(filename: string): Promise<T | null> {
   try {
@@ -33,38 +35,6 @@ async function fetchConfigSafe<T>(filename: string): Promise<T | null> {
 }
 
 
-/**
- * Remove uma mídia do bloco (mesma convenção que `blockMediaRecord`: prioriza `commercials` se não vazio).
- */
-function removeMusicFromBlock(
-  data: SyncPlayData,
-  plKey: string,
-  blockKey: string,
-  musicKey: string
-): SyncPlayData | null {
-  const block = data.playlists[plKey]?.blocks[blockKey];
-  if (!block) return null;
-  const mediaKind = blockMediaKind(block);
-  const record = blockMediaRecord(block);
-  if (!(musicKey in record)) return null;
-  const { [musicKey]: _removed, ...rest } = record;
-  const nextBlock = blockWithSyncedDurationTotal(setBlockMediaRecord(block, mediaKind, rest));
-
-  return {
-    ...data,
-    playlists: {
-      ...data.playlists,
-      [plKey]: {
-        ...data.playlists[plKey],
-        blocks: {
-          ...data.playlists[plKey].blocks,
-          [blockKey]: nextBlock,
-        },
-      },
-    },
-  };
-}
-
 function numericStart(value: number | undefined) {
   return typeof value === 'number' && Number.isFinite(value) ? value : Number.MAX_SAFE_INTEGER;
 }
@@ -75,72 +45,6 @@ function orderedPlaylistEntries(data: SyncPlayData) {
 
 function orderedBlockEntries(blocks: SyncPlayData['playlists'][string]['blocks']) {
   return Object.entries(blocks).sort(([, a], [, b]) => numericStart(a.start) - numericStart(b.start));
-}
-
-function blockMediaKind(block: SyncPlayData['playlists'][string]['blocks'][string]): 'musics' | 'commercials' {
-  const commercials = block.commercials;
-  if (block.type === 'commercial' || (commercials && Object.keys(commercials).length > 0)) {
-    return 'commercials';
-  }
-  return 'musics';
-}
-
-/** Músicas ficam em `musics`; comerciais na playlist oficial vêm em `commercials`. */
-function blockMediaRecord(block: SyncPlayData['playlists'][string]['blocks'][string]): Record<string, Music> {
-  return blockMediaKind(block) === 'commercials'
-    ? block.commercials ?? {}
-    : block.musics ?? {};
-}
-
-function setBlockMediaRecord(
-  block: SyncPlayData['playlists'][string]['blocks'][string],
-  mediaKind: 'musics' | 'commercials',
-  media: Record<string, Music>
-) {
-  return mediaKind === 'commercials'
-    ? { ...block, commercials: media }
-    : { ...block, musics: media };
-}
-
-/** Remove todas as mídias do bloco (`musics` ou `commercials`, conforme `blockMediaKind`). */
-function clearBlockMedia(
-  data: SyncPlayData,
-  plKey: string,
-  blockKey: string
-): SyncPlayData | null {
-  const block = data.playlists[plKey]?.blocks[blockKey];
-  if (!block) return null;
-  const kind = blockMediaKind(block);
-  const emptied = blockWithSyncedDurationTotal(setBlockMediaRecord(block, kind, {}));
-  return {
-    ...data,
-    playlists: {
-      ...data.playlists,
-      [plKey]: {
-        ...data.playlists[plKey],
-        blocks: {
-          ...data.playlists[plKey].blocks,
-          [blockKey]: emptied,
-        },
-      },
-    },
-  };
-}
-
-/** Data do arquivo agregado (prefixo `AAAA-MM-DD-` quando vem de dia extra carregado). */
-function isoDateHintFromPlaylistKey(plKey: string, fallbackIso: string) {
-  return /^(\d{4}-\d{2}-\d{2})-/.exec(plKey)?.[1] ?? fallbackIso;
-}
-
-function formatBrazilianPlaylistDate(iso: string) {
-  const parts = iso.split('-');
-  if (parts.length !== 3) return iso;
-  const [yStr, moStr, dStr] = parts;
-  const y = Number(yStr);
-  const m = Number(moStr);
-  const d = Number(dStr);
-  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return iso;
-  return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`;
 }
 
 function musicForPlaylistItemId(data: SyncPlayData | null, uniqueId: string | null): Music | null {
@@ -176,34 +80,6 @@ function blockAndProgramForPlaylistItemId(
     }
   }
   return null;
-}
-
-function legacyBool(value: unknown) {
-  return value === true || value === 1 || value === '1';
-}
-
-function mediaDurationMs(music: Music) {
-  if (music.extra?.mix?.duration_real) return music.extra.mix.duration_real;
-  if (music.extra?.mix?.duration_total) return music.extra.mix.duration_total;
-  return typeof music.duration === 'number' && Number.isFinite(music.duration)
-    ? music.duration * 1000
-    : null;
-}
-
-/** Mesma regra que `read_playlist` no Rust: soma durações reais das mídias do mapa ativo (`blockMediaRecord`). */
-function sumBlockDurationRealTotalMs(block: SyncPlayData['playlists'][string]['blocks'][string]): number {
-  let sum = 0;
-  for (const music of Object.values(blockMediaRecord(block))) {
-    const ms = mediaDurationMs(music);
-    if (typeof ms === 'number' && Number.isFinite(ms)) sum += ms;
-  }
-  return Math.round(sum);
-}
-
-function blockWithSyncedDurationTotal(
-  block: SyncPlayData['playlists'][string]['blocks'][string]
-): SyncPlayData['playlists'][string]['blocks'][string] {
-  return { ...block, duration_real_total_ms: sumBlockDurationRealTotalMs(block) };
 }
 
 function mediaMixOutMs(music: Music) {
@@ -297,14 +173,6 @@ function buildPlaylistRuntimeItems(data: SyncPlayData, mixConfig: MixConfig | nu
   return { playableItems, scheduledBlocks };
 }
 
-function getBlockDisplayStart(blockStart: number | undefined, musicEntries: Array<[string, Music]>) {
-  if (typeof blockStart === 'number' && Number.isFinite(blockStart)) return blockStart;
-
-  return musicEntries.find(([, music]) =>
-    typeof music.start === 'number' && Number.isFinite(music.start)
-  )?.[1].start;
-}
-
 function playlistDateMidnightMs(dateString: string) {
   const [year, month, day] = dateString.split('-').map(Number);
   return new Date(year, month - 1, day).getTime();
@@ -377,57 +245,6 @@ function applyScheduleMediaDiscards(
   );
 
   return changed ? { ...data, playlists } : data;
-}
-
-interface LibraryMediaListItemProps {
-  file: DirFile;
-  idx: number;
-  isSelected: boolean;
-  isCueing: boolean;
-  isCuePlaying: boolean;
-  onSelect: () => void;
-  onDoubleClick: () => void;
-  onCue: (e: React.MouseEvent) => void;
-}
-
-function LibraryMediaListItem({
-  file,
-  idx,
-  isSelected,
-  isCueing,
-  isCuePlaying,
-  onSelect,
-  onDoubleClick,
-  onCue,
-}: LibraryMediaListItemProps) {
-  return (
-    <div
-      id={`midia-item-${idx}`}
-      className={[
-        "flex items-center gap-2.5 px-3 h-9 cursor-pointer border-b border-[#353535]/50 select-none transition-colors duration-150",
-        isSelected ? "bg-white/8 border-l-2 border-l-[#525252]" : "hover:bg-white/5",
-        isCueing ? "bg-violet-500/12 border-l-2 border-l-violet-400" : "",
-      ].join(" ")}
-      title={file.path}
-      onClick={onSelect}
-      onDoubleClick={onDoubleClick}
-    >
-      <button
-        type="button"
-        className={[
-          "w-[26px] h-[26px] rounded-full flex items-center justify-center text-xs text-white/90 shrink-0 transition-all duration-200",
-          isCuePlaying ? "bg-violet-700 animate-pulse-cue" : "bg-white/10 hover:bg-violet-400 hover:scale-110",
-        ].join(" ")}
-        title={isCuePlaying ? "Parar CUE" : "Preview CUE"}
-        onClick={onCue}
-        onPointerDown={(e) => e.stopPropagation()}
-      >
-        {isCuePlaying ? "⏸" : "▶"}
-      </button>
-      <span className="flex-1 text-[0.82rem] text-white/90 whitespace-nowrap overflow-hidden text-ellipsis">{file.name.replace(/\.[^/.]+$/, "")}</span>
-      <span className="text-[0.62rem] bg-white/10 text-slate-400 px-1.5 py-0.5 rounded font-semibold shrink-0">{file.name.split(".").pop()?.toUpperCase()}</span>
-    </div>
-  );
 }
 
 // --- App ---
@@ -1131,495 +948,96 @@ function App() {
         style={{ overflow: 'hidden' }}
       >
 
-        {/* COLUNA 1 (playlist + cabeçalho fixo) */}
-        <div
-          className="relative flex min-h-0 flex-col overflow-hidden bg-[#262626] border-r border-[#353535]"
-          style={col1Style}
-        >
-          {/* Faixa atual: capa + artista / música */}
-          <MusicInfo nowPlayingMusic={nowPlayingMusic} />
-          {/* Reserva: waveform */}
-          <div
-            className="h-14 shrink-0 border-b border-[#353535]"
-            aria-hidden
-          />
-          <PlaylistPlaybackBar
-            currentTime={currentTime}
-            duration={duration}
-            hasCurrentTrack={playingId != null}
-            isPlaying={isPlaying}
-            onStop={() => invoke("pause_audio").catch(console.error)}
-            onTogglePlayPause={async () => {
-              if (!playingId) return;
-              try {
-                if (isPlaying) await invoke("pause_audio");
-                else await invoke("resume_audio");
-              } catch (e) {
-                console.error(e);
-              }
-            }}
-            onNext={() => invoke("skip_with_fade").catch(console.error)}
-          />
-          <div className="flex h-full min-h-0 w-full min-w-0">
-            <div
-              className="h-full min-w-3 shrink basis-12"
-              aria-hidden
-            />
-            <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-              <PlaylistCurrentBlock
-                predictedTimeLabel={playlistCurrentBlockLine.predictedTimeLabel}
-                programName={playlistCurrentBlockLine.programName}
-                blockType={playlistCurrentBlockLine.blockType}
-              />
-              <div className="scrollable-y relative flex min-h-0 flex-1 flex-col overflow-y-auto">
-                {loading && <p className="text-center p-8 text-slate-400">Carregando lista...</p>}
-                {error && <div className="text-center p-8 text-red-300">{error}</div>}
+        <PlaylistColumn
+          col1Style={col1Style}
+          nowPlayingMusic={nowPlayingMusic}
+          currentTime={currentTime}
+          duration={duration}
+          playingId={playingId}
+          scheduledMusicId={scheduledMusicId}
+          isPlaying={isPlaying}
+          playlistCurrentBlockLine={playlistCurrentBlockLine}
+          loading={loading}
+          error={error}
+          data={data}
+          visiblePlaylistGroups={visiblePlaylistGroups}
+          playlistBaseDate={playlistBaseDate}
+          playlistBlockHideDisabled={playlistBlockHideDisabled}
+          setPlaylistBlockHideDisabled={setPlaylistBlockHideDisabled}
+          playlistBlockExpanded={playlistBlockExpanded}
+          setPlaylistBlockExpanded={setPlaylistBlockExpanded}
+          setData={setData}
+          autoMixOverrides={autoMixOverrides}
+          playlistFilterVis={playlistFilterVis}
+          libraryYearDecade={libraryYearDecade}
+          showNameMusicFiles={showNameMusicFiles}
+          showNameCommercialFiles={showNameCommercialFiles}
+          showNameMediaFiles={showNameMediaFiles}
+          libMusicFilterIds={libMusicFilterIds}
+          applyPlaylistFilterClick={applyPlaylistFilterClick}
+          searchQuery={searchQuery}
+          mediaCategory={mediaCategory}
+          directoryValue={directoryValue}
+          scheduleStarts={scheduleStarts}
+          trashHighlightPlaylistId={trashHighlightPlaylistId}
+          setTrashHighlightPlaylistId={setTrashHighlightPlaylistId}
+          backgroundIds={backgroundIds}
+          backgroundDurations={backgroundDurations}
+          backgroundPositions={backgroundPositions}
+          togglePlay={togglePlay}
+          handleSeek={handleSeek}
+          playableItemsRef={playableItemsRef}
+          playlistItemRefs={playlistItemRefs}
+          playlistHasMoreTail={playlistHasMoreTail}
+          playlistAppendingDay={playlistAppendingDay}
+          playlistAppendError={playlistAppendError}
+          loadNextPlaylistBlock={loadNextPlaylistBlock}
+          loadAllPlaylistBlocksUntilEnd={loadAllPlaylistBlocksUntilEnd}
+        />
 
-                {!loading && !error && data && (
-                  <div className="w-full">
-                    {visiblePlaylistGroups.map(({ plKey, pl, blocks }) => (
-                      <div key={plKey}>
-                        {blocks.map(([blockKey, block]) => {
-                          const musicEntries = Object.entries(blockMediaRecord(block));
-                          const blockDisplayStart = getBlockDisplayStart(block.start, musicEntries);
-                          const blockUiKey = `${plKey}::${blockKey}`;
-                          const anchor = playingId ?? scheduledMusicId;
-                          const isCurrentBlock = Boolean(
-                            anchor && anchor.startsWith(`${plKey}-${blockKey}-`)
-                          );
-                          const programKey = (pl.program || '').trim() || plKey;
-                          const dateIso = isoDateHintFromPlaylistKey(plKey, playlistBaseDate);
-                          const dateTextBr = formatBrazilianPlaylistDate(dateIso);
-                          const scheduleBlockSec =
-                            typeof block.duration === 'number' && Number.isFinite(block.duration)
-                              ? block.duration
-                              : typeof block.size === 'number' && Number.isFinite(block.size)
-                                ? block.size
-                                : null;
-                          const durMs = block.duration_real_total_ms;
-                          const fromRealTotalSec =
-                            typeof durMs === 'number' && Number.isFinite(durMs) && durMs > 0
-                              ? durMs / 1000
-                              : null;
-                          const headerDurationSeconds =
-                            fromRealTotalSec ??
-                            (scheduleBlockSec !== null && scheduleBlockSec > 0 ? scheduleBlockSec : null);
-                          const hasFixedTime =
-                            block.start_alias != null && String(block.start_alias).trim() !== '';
-                          const dataHideDisabled = playlistBlockHideDisabled[blockUiKey] === true;
-                          const blockExpanded = playlistBlockExpanded[blockUiKey] !== false;
-                          return (
-                            <section
-                              key={`${plKey}-${blockKey}`}
-                              data-playlist={plKey}
-                              data-pkey={programKey}
-                              data-bkey={blockKey}
-                              data-hide-disabled={dataHideDisabled ? 'true' : 'false'}
-                              className={[
-                                'playlist-block',
-                                block.type === 'musical'
-                                  ? 'playlist-block--musical'
-                                  : 'playlist-block--commercial',
-                                hasFixedTime ? 'playlist-block--fixed' : '',
-                              ]
-                                .filter(Boolean)
-                                .join(' ')}
-                            >
-                              <BlockHeader
-                                playlistKey={plKey}
-                                programKey={programKey}
-                                blockKey={blockKey}
-                                dateText={dateTextBr}
-                                isCommercialBlock={block.type !== 'musical'}
-                                startTimeSeconds={blockDisplayStart}
-                                durationSeconds={headerDurationSeconds}
-                                hasFixedTime={hasFixedTime}
-                                isCurrentBlock={isCurrentBlock}
-                                dataHideDisabled={dataHideDisabled}
-                                onToggleHideDisabled={() => {
-                                  setPlaylistBlockHideDisabled((prev) => ({
-                                    ...prev,
-                                    [blockUiKey]: !prev[blockUiKey],
-                                  }));
-                                }}
-                                onClearBlock={() => {
-                                  setData((prev) => {
-                                    if (!prev) return prev;
-                                    return clearBlockMedia(prev, plKey, blockKey) ?? prev;
-                                  });
-                                }}
-                                expanded={blockExpanded}
-                                onToggleExpanded={() => {
-                                  setPlaylistBlockExpanded((prev) => {
-                                    const isExp = prev[blockUiKey] !== false;
-                                    return { ...prev, [blockUiKey]: !isExp };
-                                  });
-                                }}
-                              />
-                              {blockExpanded ? (
-                              <div className="playlist-block-body">
-                                {musicEntries.length === 0 ? (
-                                  <div className="px-2 py-1">
-                                    <div className="rounded-xl border border-dashed border-[#353535] mx-1 px-3 py-6 text-center">
-                                      <p className="m-0 text-[0.78rem] text-slate-500 italic">
-                                        Nenhuma mídia neste bloco
-                                      </p>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <>
-                                    {musicEntries.map(([musicKey, music]) => {
-                                      const uniqueId = `${plKey}-${blockKey}-${musicKey}`;
-                                      const isCurrentlyPlaying = playingId === uniqueId;
-                                      const isBackgroundPlaying = backgroundIds.includes(uniqueId);
-                                      const scheduleStart = scheduleStarts[uniqueId];
-                                      const isDisabled = legacyBool(music.disabled) ||
-                                        legacyBool(music.discarded) ||
-                                        legacyBool(music.manualDiscard ?? music.manual_discard) ||
-                                        scheduleStart?.active === false;
-                                      return (
-                                        <div
-                                          key={musicKey}
-                                          ref={(node) => {
-                                            if (node) playlistItemRefs.current[uniqueId] = node;
-                                            else delete playlistItemRefs.current[uniqueId];
-                                          }}
-                                          data-playlist-music-id={uniqueId}
-                                        >
-                                            <PlaylistMusicItem
-                                              music={music}
-                                              itemUniqueId={uniqueId}
-                                              overrideMixEndMs={autoMixOverrides[uniqueId]}
-                                              filterVisibility={playlistFilterVis}
-                                              libraryYearDecade={libraryYearDecade}
-                                              showMusicFileName={showNameMusicFiles}
-                                              showCommercialFileName={showNameCommercialFiles}
-                                              showMediaFileName={showNameMediaFiles}
-                                              libMusicFilterIds={libMusicFilterIds}
-                                              playlistSidebarFilterHighlight={{
-                                                searchQuery,
-                                                mediaCategory,
-                                                directoryValue,
-                                              }}
-                                              onPlaylistFilterClick={applyPlaylistFilterClick}
-                                              startLabel={scheduleStart?.startLabel}
-                                              isCurrentlyPlaying={isCurrentlyPlaying}
-                                              isBackgroundPlaying={isBackgroundPlaying}
-                                              isScheduledUpcoming={scheduledMusicId === uniqueId && !isCurrentlyPlaying && !isBackgroundPlaying}
-                                              isDisabled={isDisabled}
-                                              isPlaying={isPlaying}
-                                              currentTime={currentTime}
-                                              duration={isBackgroundPlaying && backgroundDurations[uniqueId] ? backgroundDurations[uniqueId] / 1000 : duration}
-                                              backgroundPosition={backgroundPositions[uniqueId] ?? 0}
-                                              onPlay={() => togglePlay(uniqueId)}
-                                              onSeek={handleSeek}
-                                              showTrashSkipIcon={trashHighlightPlaylistId === uniqueId}
-                                              onPlaylistItemSelect={() =>
-                                                setTrashHighlightPlaylistId((prev) =>
-                                                  prev === uniqueId ? null : uniqueId
-                                                )
-                                              }
-                                              onTrashRemove={
-                                                trashHighlightPlaylistId === uniqueId
-                                                  ? () => {
-                                                    setTrashHighlightPlaylistId(null);
-                                                    setData((prev) => {
-                                                      if (!prev) return prev;
-                                                      return (
-                                                        removeMusicFromBlock(prev, plKey, blockKey, musicKey) ??
-                                                        prev
-                                                      );
-                                                    });
-                                                  }
-                                                  : undefined
-                                              }
-                                              onSkipNextFromRow={() => {
-                                                const q = playableItemsRef.current;
-                                                const idx = q.findIndex((i) => i.id === uniqueId);
-                                                if (idx === -1) return;
-                                                invoke("play_index", { index: idx + 1 }).catch(console.error);
-                                              }}
-                                            />
-                                        </div>
-                                      );
-                                    })}
-                                  </>
-                                )}
-                              </div>
-                              ) : null}
-                              <div className="playlist-block-footer" />
-                            </section>
-                          );
-                        })}
-                      </div>
-                    ))}
-                    <PlaylistLoadMoreControls
-                      hasMoreTail={playlistHasMoreTail}
-                      isLoading={playlistAppendingDay}
-                      onLoadNext={loadNextPlaylistBlock}
-                      onLoadAll={loadAllPlaylistBlocksUntilEnd}
-                    />
-                    {playlistAppendError && (
-                      <div className="px-3 pb-3 text-[0.78rem] text-red-300">
-                        {playlistAppendError}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Drag-handle entre col-1 e col-2 */}
         <div
           className="shrink-0 cursor-col-resize bg-[#353535] hover:bg-neutral-500 transition-colors duration-150 z-10"
           style={{ width: handleW, touchAction: 'none' }}
           onMouseDown={onHandleMouseDown('h1')}
         />
 
-        {/* COLUNA 2 (#midias — biblioteca + CUE) */}
-        <div
-          id="midias"
-          className="flex flex-col overflow-hidden p-0 bg-[#262626]"
-          style={col2Style}
-        >
-          <div className="px-5 pt-5 pb-3 border-b border-[#353535] flex flex-col gap-2.5 shrink-0">
-            <h2 className="text-[1rem] font-semibold text-slate-400 tracking-[0.04em] uppercase">📂 Biblioteca de Mídias</h2>
-            <div className="flex gap-2">
-              <select
-                className="flex-1 bg-white/5 border border-[#353535] rounded-lg px-3 py-1.5 text-white/90 text-[0.8rem] outline-none transition-colors focus:border-neutral-500 [&>option]:bg-[#262626] [&>option]:text-white"
-                value={mediaCategory}
-                onChange={(e) => setMediaCategory(e.target.value as MediaCategory)}
-              >
-                <option value="unset">Selecione o tipo</option>
-                <option value="musics">Músicas</option>
-                <option value="medias">Mídias</option>
-                <option value="others">Comerciais / Outros</option>
-              </select>
+        <LibraryColumn
+          col2Style={col2Style}
+          libraryYearDecade={libraryYearDecade}
+          mediaCategory={mediaCategory}
+          setMediaCategory={setMediaCategory}
+          directoryOptions={directoryOptions}
+          directoryValue={directoryValue}
+          setDirectoryValue={setDirectoryValue}
+          setDirectoryKind={setDirectoryKind}
+          libMusicFilterIds={libMusicFilterIds}
+          setLibMusicFilterIds={setLibMusicFilterIds}
+          resetLibMusicFilters={resetLibMusicFilters}
+          musicCategoryMap={musicCategoryMap}
+          musicStyleMap={musicStyleMap}
+          musicRhythmMap={musicRhythmMap}
+          musicNationalityMap={musicNationalityMap}
+          searchQuery={searchQuery}
+          setSearchQuery={setSearchQuery}
+          filteredFiles={filteredFiles}
+          dirError={dirError}
+          dirLoading={dirLoading}
+          dirFiles={dirFiles}
+          parentRef={parentRef}
+          rowVirtualizer={rowVirtualizer}
+          selectedFile={selectedFile}
+          setSelectedFile={setSelectedFile}
+          cueFile={cueFile}
+          setCueFile={setCueFile}
+          cuePlaying={cuePlaying}
+          setCuePlaying={setCuePlaying}
+          cueTime={cueTime}
+          setCueTime={setCueTime}
+          cueDuration={cueDuration}
+          toggleCue={toggleCue}
+          handleCueSeek={handleCueSeek}
+        />
 
-              <select
-                className="flex-1 bg-white/5 border border-[#353535] rounded-lg px-3 py-1.5 text-white/90 text-[0.8rem] outline-none transition-colors focus:border-neutral-500 disabled:opacity-50 [&>option]:bg-[#262626] [&>option]:text-white"
-                value={directoryValue}
-                onChange={(e) => {
-                  setDirectoryValue(e.target.value);
-                  const opt = directoryOptions.find(o => o.value === e.target.value);
-                  if (opt) setDirectoryKind(opt.kind);
-                }}
-                disabled={mediaCategory === 'unset'}
-              >
-                {mediaCategory === 'unset' ? (
-                  <option value="" disabled>Selecione o tipo primeiro</option>
-                ) : (
-                  directoryOptions.map((opt) => (
-                    <option key={`${opt.kind}-${opt.value}`} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))
-                )}
-              </select>
-            </div>
-
-            {mediaCategory === 'musics' && (
-              <div className="flex flex-col gap-2 border border-[#353535]/80 rounded-lg px-3 py-2 bg-black/15">
-                <div className="flex flex-wrap gap-2 items-center">
-                  <select
-                    className="min-w-[120px] flex-1 bg-white/5 border border-[#353535] rounded-lg px-2 py-1 text-white/90 text-[0.72rem] outline-none focus:border-neutral-500 [&>option]:bg-[#262626]"
-                    value={libMusicFilterIds.categoryId}
-                    onChange={(e) =>
-                      setLibMusicFilterIds((prev) => ({ ...prev, categoryId: e.target.value }))
-                    }
-                  >
-                    <option value="">Categoria</option>
-                    {Object.entries(musicCategoryMap).map(([id, label]) => (
-                      <option key={id} value={id}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    className="min-w-[120px] flex-1 bg-white/5 border border-[#353535] rounded-lg px-2 py-1 text-white/90 text-[0.72rem] outline-none focus:border-neutral-500 [&>option]:bg-[#262626]"
-                    value={libMusicFilterIds.styleId}
-                    onChange={(e) =>
-                      setLibMusicFilterIds((prev) => ({ ...prev, styleId: e.target.value }))
-                    }
-                  >
-                    <option value="">Estilo</option>
-                    {Object.entries(musicStyleMap).map(([id, label]) => (
-                      <option key={id} value={id}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    className="min-w-[120px] flex-1 bg-white/5 border border-[#353535] rounded-lg px-2 py-1 text-white/90 text-[0.72rem] outline-none focus:border-neutral-500 [&>option]:bg-[#262626]"
-                    value={libMusicFilterIds.rhythmId}
-                    onChange={(e) =>
-                      setLibMusicFilterIds((prev) => ({ ...prev, rhythmId: e.target.value }))
-                    }
-                  >
-                    <option value="">Ritmo</option>
-                    {Object.entries(musicRhythmMap).map(([id, label]) => (
-                      <option key={id} value={id}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    className="min-w-[120px] flex-1 bg-white/5 border border-[#353535] rounded-lg px-2 py-1 text-white/90 text-[0.72rem] outline-none focus:border-neutral-500 [&>option]:bg-[#262626]"
-                    value={libMusicFilterIds.nationalityId}
-                    onChange={(e) =>
-                      setLibMusicFilterIds((prev) => ({ ...prev, nationalityId: e.target.value }))
-                    }
-                  >
-                    <option value="">Nacionalidade</option>
-                    {Object.entries(musicNationalityMap).map(([id, label]) => (
-                      <option key={id} value={id}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex flex-wrap gap-2 items-center">
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    placeholder={libraryYearDecade ? 'Ano min (década)' : 'Ano min'}
-                    className="w-24 bg-white/5 border border-[#353535] rounded-lg px-2 py-1 text-white/90 text-[0.72rem] outline-none focus:border-neutral-500"
-                    value={libMusicFilterIds.yearMin}
-                    onChange={(e) =>
-                      setLibMusicFilterIds((prev) => ({ ...prev, yearMin: e.target.value }))
-                    }
-                  />
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    placeholder={libraryYearDecade ? 'Ano máx' : 'Ano máx'}
-                    className="w-24 bg-white/5 border border-[#353535] rounded-lg px-2 py-1 text-white/90 text-[0.72rem] outline-none focus:border-neutral-500"
-                    value={libMusicFilterIds.yearMax}
-                    onChange={(e) =>
-                      setLibMusicFilterIds((prev) => ({ ...prev, yearMax: e.target.value }))
-                    }
-                  />
-                  <button
-                    type="button"
-                    className="ml-auto text-[0.72rem] px-2 py-1 rounded-lg bg-white/10 text-slate-200 hover:bg-white/15 border border-[#353535]"
-                    onClick={() => resetLibMusicFilters()}
-                  >
-                    Limpar filtros
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <div className="flex items-center gap-2 bg-white/3 border border-[#353535] rounded-lg px-3 py-1.5">
-              <span className="text-[0.85rem] opacity-70" aria-hidden>🔍</span>
-              <input id="buscaMidia" className="flex-1 bg-transparent border-none outline-none text-white/90 text-[0.85rem] placeholder:text-slate-500"
-                placeholder="Buscar mídia..." value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)} />
-              {searchQuery && (
-                <span className="text-[0.72rem] text-neutral-400 font-semibold whitespace-nowrap">
-                  {filteredFiles.length} resultado{filteredFiles.length !== 1 ? "s" : ""}
-                </span>
-              )}
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-hidden flex flex-col relative">
-            {dirError && <div className="m-3 px-3 py-2 bg-red-500/12 border border-red-500/30 rounded-lg text-red-300 text-[0.82rem]">⚠️ {dirError}</div>}
-            {!dirLoading && dirFiles.length === 0 && !dirError && (
-              <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-400 text-[0.88rem] text-center p-8">
-                <span className="text-[2.5rem] opacity-50" aria-hidden>🎵</span>
-                <p>Selecione uma pasta e carregue os arquivos (🔍 acima).</p>
-              </div>
-            )}
-            {dirLoading && (
-              <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-400 text-[0.88rem]">
-                <div className="w-8 h-8 border-3 border-[#353535] border-t-neutral-400 rounded-full animate-spin-custom" />
-                <p>Lendo diretório...</p>
-              </div>
-            )}
-            {!dirLoading && filteredFiles.length > 0 && (
-              <div className="list flex-1 overflow-y-auto relative" ref={parentRef}>
-                <div
-                  style={{
-                    height: `${rowVirtualizer.getTotalSize()}px`,
-                    width: '100%',
-                    position: 'relative',
-                  }}
-                >
-                  {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                    const file = filteredFiles[virtualRow.index];
-                    const isSelected = selectedFile === file.path;
-                    const isCueing = cueFile === file.path;
-                    const isCuePlaying = isCueing && cuePlaying;
-
-                    return (
-                      <div
-                        key={virtualRow.key}
-                        data-index={virtualRow.index}
-                        ref={rowVirtualizer.measureElement}
-                        style={{
-                          position: 'absolute',
-                          top: 0,
-                          left: 0,
-                          width: '100%',
-                          transform: `translateY(${virtualRow.start}px)`,
-                        }}
-                      >
-                        <LibraryMediaListItem
-                          file={file}
-                          idx={virtualRow.index}
-                          isSelected={isSelected}
-                          isCueing={isCueing}
-                          isCuePlaying={isCuePlaying}
-                          onSelect={() => {
-                            setSelectedFile(file.path);
-                            if (!isCueing && cuePlaying) {
-                              invoke("stop_independent", { id: "cue-player" }).catch(console.error);
-                              setCuePlaying(false);
-                            }
-                          }}
-                          onDoubleClick={() => console.log("[Playlist] Double-click:", file.path)}
-                          onCue={e => {
-                            e.stopPropagation();
-                            toggleCue(file);
-                          }}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {cueFile && (
-            <div className="shrink-0 px-4 py-2.5 border-t border-[#353535] bg-[#1f1f1f] flex flex-col gap-1.5">
-              <div className="flex items-center gap-2">
-                <span className="text-[0.6rem] font-bold tracking-[0.08em] bg-violet-700 text-white px-1.5 py-0.5 rounded shrink-0">CUE</span>
-                <span className="text-[0.8rem] text-violet-300 whitespace-nowrap overflow-hidden text-ellipsis">
-                  {cueFile.split(/[\\\/]/).pop()?.replace(/\.[^/.]+$/, "")}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-[0.72rem] text-slate-400 tabular-nums min-w-[35px]">{formatTime(cueTime)}</span>
-                <input type="range" className="cue-progress-bar"
-                  min={0} max={isNaN(cueDuration) ? 0 : cueDuration}
-                  step={0.01} value={isNaN(cueTime) ? 0 : cueTime} onChange={handleCueSeek} />
-                <span className="text-[0.72rem] text-slate-400 tabular-nums min-w-[35px]">{formatTime(cueDuration)}</span>
-                <button
-                  className={`shrink-0 bg-white/10 border-none rounded-md px-2 py-1 text-[0.9rem] cursor-pointer transition-colors ${cuePlaying ? "text-red-300" : "text-slate-400"} hover:bg-red-500/30 hover:text-red-300`}
-                  onClick={() => {
-                    invoke("stop_independent", { id: "cue-player" }).catch(console.error);
-                    setCuePlaying(false); setCueTime(0); setCueFile(null);
-                  }} title="Parar CUE">⏹</button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Drag-handle entre col-2 e col-3 */}
         {!isRetrieveMode && (
           <div
             className="shrink-0 cursor-col-resize bg-[#353535] hover:bg-neutral-500 transition-colors duration-150 z-10"
@@ -1628,12 +1046,7 @@ function App() {
           />
         )}
 
-        {/* COLUNA 3 — Mixer */}
-        {!isRetrieveMode && (
-          <div className="flex flex-col min-h-0 flex-1 overflow-hidden bg-[#161616]">
-            <MixerPanel />
-          </div>
-        )}
+        {!isRetrieveMode && <MixerColumn />}
 
       </div>
 

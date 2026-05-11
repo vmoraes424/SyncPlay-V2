@@ -73,18 +73,38 @@ export function BusStrip({
   const currentDevice = config.device_id ?? "default";
 
   const header = (
-    <select
-      className="w-full cursor-pointer truncate rounded border border-[#333] bg-[#0a0a0a] px-1 py-0.5 text-[8px] text-[#888] focus:border-[#555] focus:text-[#ccc] focus:outline-none"
-      value={currentDevice}
-      onChange={handleDeviceChange}
-      title="Dispositivo de saída"
-    >
-      {devices.map((d) => (
-        <option key={d.id} value={d.id}>
-          {d.name}
-        </option>
-      ))}
-    </select>
+    <div className="flex flex-col w-full gap-1">
+      <select
+        className="w-full cursor-pointer truncate rounded border border-[#333] bg-[#0a0a0a] px-1 py-0.5 text-[8px] text-[#888] focus:border-[#555] focus:text-[#ccc] focus:outline-none"
+        value={currentDevice}
+        onChange={handleDeviceChange}
+        title="Dispositivo de saída"
+      >
+        {devices.map((d) => (
+          <option key={d.id} value={d.id}>
+            {d.name}
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        className="flex min-h-[18px] min-w-0 flex-1 items-center justify-center gap-0.5 rounded-xs border border-[#111] cursor-pointer bg-linear-to-b from-[#555] to-[#333] px-0.5 py-0.3 text-[11px] font-bold uppercase tracking-wide text-[#2c2c2c] transition-[background,color,box-shadow] active:scale-[0.97] active:shadow-[inset_0_1px_3px_rgba(0,0,0,0.6)]" 
+        title="Arm saída (placa). Desligado: só VU no fader, sem áudio no DAC."
+      >
+        OUT
+      </button>
+      <button
+        type="button"
+        className="flex min-h-[18px] min-w-0 flex-1 items-center justify-center gap-0.5 rounded-xs border border-[#111] cursor-pointer bg-linear-to-b from-[#555] to-[#333] px-0.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-[#2c2c2c] transition-[background,color,box-shadow] active:scale-[0.97] active:shadow-[inset_0_1px_3px_rgba(0,0,0,0.6)]"
+        title="FX"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px"
+          fill="#2c2c2c">
+          <path
+            d="M384-240v-72h70l99-120-99-120h-55l-64 322q-8 39-35.5 62.5T237-144q-39 0-66-26.5T144-232q0-24 14-40t36-16q20 0 33 12.5t13 31.5q0 6-1.5 13t-4.5 14q2 1 3 1h3q10 0 15.5-7t8.5-21l62-308h-86v-72h100l21-106q8-39 35.5-62.5T459-816q39 0 66 26.5t27 61.5q0 24-14 40t-36 16q-20 0-33-12.5T456-716q0-6 1.5-13t4.5-14q-2-1-3-1h-3q-10 0-15.5 7t-8.5 21l-19 92h163v72h-29l53 64 53-64h-29v-72h192v72h-69L647-432l100 120h69v72H624v-72h29l-53-64-53 64h29v72H384Z" />
+        </svg>
+      </button>
+    </div>
   );
 
   return (
