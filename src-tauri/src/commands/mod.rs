@@ -4,3 +4,4 @@ pub mod mix;
 pub mod mixer;
 pub mod schedule;
 pub mod settings;
+pub mod weather;

@@ -18,6 +18,8 @@ pub enum AppError {
     State(String),
     #[error("Erro ao decodificar audio: {0}")]
     AudioDecode(String),
+    #[error("Erro de rede: {0}")]
+    Network(String),
 }
 
 impl Serialize for AppError {
@@ -44,5 +46,11 @@ impl From<serde_json::Error> for AppError {
 impl From<std::sync::mpsc::SendError<AudioCommand>> for AppError {
     fn from(error: std::sync::mpsc::SendError<AudioCommand>) -> Self {
         Self::AudioCommand(error.to_string())
+    }
+}
+
+impl From<reqwest::Error> for AppError {
+    fn from(error: reqwest::Error) -> Self {
+        Self::Network(error.to_string())
     }
 }

@@ -6,6 +6,15 @@ import type { DirFile, DirectoryOption, DirectoryOptionKind, MediaCategory } fro
 import type { LibMusicFiltersState } from '../../hooks/useSyncplayLibrary';
 import { LibraryMediaListItem } from './LibraryMediaListItem';
 
+export interface WeatherCurrentPayload {
+  cityLabel: string;
+  icon: string;
+  description: string;
+  temperatureC: number;
+  weathercode: number;
+  title: string;
+}
+
 export interface LibraryColumnProps {
   col2Style: CSSProperties;
   /** Data da playlist carregada (`YYYY-MM-DD`), exibe abaixo do nome da filial. */
@@ -88,10 +97,31 @@ export function LibraryColumn({
 }: LibraryColumnProps) {
   const dayLabel = formatPlaylistDayShortPt(playlistDateYmd);
   const [now, setNow] = useState(() => new Date());
+  const [weather, setWeather] = useState<WeatherCurrentPayload | null>(null);
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadWeather = async () => {
+      try {
+        const data = await invoke<WeatherCurrentPayload | null>('fetch_weather_current');
+        if (!cancelled) setWeather(data);
+      } catch (err) {
+        console.warn('[Weather] Erro ao buscar clima:', err);
+        if (!cancelled) setWeather(null);
+      }
+    };
+    void loadWeather();
+    const weatherIntervalMs = 15 * 60 * 1000;
+    const wxId = window.setInterval(() => void loadWeather(), weatherIntervalMs);
+    return () => {
+      cancelled = true;
+      window.clearInterval(wxId);
+    };
   }, []);
 
   const hh = String(now.getHours()).padStart(2, '0');
@@ -132,6 +162,28 @@ export function LibraryColumn({
             <span className="text-xs font-medium text-[#818181]">:{ss}</span>
           </div>
         </div>
+        {weather ? (
+          <div
+            id="weather-widget"
+            className="flex items-center gap-2.5 px-2.5 rounded-lg text-white min-w-0"
+            title={weather.title}
+          >
+            <span id="weather-icon" className="text-xl leading-none shrink-0" aria-hidden>
+              {weather.icon}
+            </span>
+            <div className="min-w-0 flex-1 flex flex-col gap-0.5">
+              <span id="weather-city" className="text-[0.72rem] font-semibold truncate">
+                {weather.cityLabel}
+              </span>
+              <span id="weather-desc" className="text-[0.65rem] text-[#818181] truncate">
+                {weather.description}
+              </span>
+            </div>
+            <span id="weather-temp" className="text-sm font-bold tabular-nums shrink-0 text-white">
+              {weather.temperatureC}°C
+            </span>
+          </div>
+        ) : null}
         <div className="flex gap-2">
           <select
             className="flex-1 bg-white/5 border border-[#353535] rounded-lg px-3 py-1.5 text-white/90 text-[0.8rem] outline-none transition-colors focus:border-neutral-500 [&>option]:bg-[#262626] [&>option]:text-white"

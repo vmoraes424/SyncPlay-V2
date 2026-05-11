@@ -8,3 +8,4 @@ pub mod mixer;
 pub mod playlist;
 pub mod schedule;
 pub mod settings;
+pub mod weather;
