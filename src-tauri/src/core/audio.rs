@@ -463,10 +463,11 @@ fn make_track_entry(
     let active = Arc::new(AtomicBool::new(true));
 
     let channel_id = item.mixer_bus.clone().unwrap_or_else(|| {
-        match item.media_type.as_deref() {
-            Some("music") => crate::models::mixer::CHANNEL_PLAYLIST.to_string(),
-            Some(other) => other.to_string(),
-            None => crate::models::mixer::CHANNEL_PLAYLIST.to_string(),
+        let media_type = item.media_type.as_deref().unwrap_or("");
+        if media_type.eq_ignore_ascii_case("vem") {
+            crate::models::mixer::CHANNEL_VEM.to_string()
+        } else {
+            crate::models::mixer::CHANNEL_PLAYLIST.to_string()
         }
     });
 

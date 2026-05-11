@@ -97,7 +97,7 @@ export function ChannelStrip({
   return (
     <div
       data-channel={channelId}
-      className={`box-border flex min-h-0 shrink-0 flex-col items-center justify-between border border-[#1a1a1a] bg-(--secondary-gray,#353535) p-2 text-center transition-opacity ${wideStrip ? "w-[90px] min-w-[90px]" : "w-[70px] min-w-[70px]"
+      className={`box-border flex min-h-0 shrink-0 flex-col items-center justify-between border border-[#1a1a1a] bg-(--secondary-gray,#353535) p-2 text-center transition-opacity ${wideStrip ? "w-[90px] min-w-[90px]" : "w-[60px] min-w-[60px]"
         }`}
     >
       <div className="vu-top-controls flex w-full flex-col gap-1.5">
