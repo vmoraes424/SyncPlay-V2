@@ -344,6 +344,24 @@ select,
   }
 }
 
+@keyframes playlistTecladoBlinkRed {
+	0% {
+		fill: var(--danger);
+	}
+
+	50% {
+		fill: var(--danger);
+	}
+
+	100% {
+		fill: white
+	}
+}
+
+.playlist-teclado--idle {
+  animation: playlistTecladoBlinkRed 0.9s ease-in-out infinite;
+}
+
 .animate-spin-custom {
   animation: spin 0.35s linear infinite;
 }

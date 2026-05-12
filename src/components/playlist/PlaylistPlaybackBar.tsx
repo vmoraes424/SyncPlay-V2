@@ -4,6 +4,7 @@ import pauseBco from "../../assets/pause.png";
 import pauseLoad from "../../assets/pause_load.gif";
 import proximaBcoImg from "../../assets/proxima_bco.png";
 import { formatTimeRemaining } from "../../time";
+import { invoke } from "@tauri-apps/api/core";
 
 interface PlaylistPlaybackBarProps {
   currentTime: number;
@@ -75,8 +76,18 @@ export function PlaylistPlaybackBar({
       </div>
 
       <div className="flex items-center gap-2">
-        <svg className="teclado cursor-pointer" xmlns="http://www.w3.org/2000/svg" height="52px" viewBox="0 -960 960 960" width="52px"
-          fill="white">
+        <svg
+          className={`teclado cursor-pointer ${isPlaying ? "fill-white" : "playlist-teclado--idle"}`}
+          onClick={(e) => {
+            e.preventDefault();
+            void invoke("skip_with_fade").catch(console.error);
+          }}
+          xmlns="http://www.w3.org/2000/svg"
+          height="52px"
+          viewBox="0 -960 960 960"
+          width="52px"
+          aria-hidden
+        >
           <path
             d="M160-200q-33 0-56.5-23.5T80-280v-400q0-33 23.5-56.5T160-760h640q33 0 56.5 23.5T880-680v400q0 33-23.5 56.5T800-200H160Zm0-80h640v-400H160v400Zm160-40h320v-80H320v80ZM200-440h80v-80h-80v80Zm120 0h80v-80h-80v80Zm120 0h80v-80h-80v80Zm120 0h80v-80h-80v80Zm120 0h80v-80h-80v80ZM200-560h80v-80h-80v80Zm120 0h80v-80h-80v80Zm120 0h80v-80h-80v80Zm120 0h80v-80h-80v80Zm120 0h80v-80h-80v80ZM160-280v-400 400Z" />
         </svg>

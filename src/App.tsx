@@ -995,6 +995,7 @@ function App() {
             playlistAppendError={playlistAppendError}
             loadNextPlaylistBlock={loadNextPlaylistBlock}
             loadAllPlaylistBlocksUntilEnd={loadAllPlaylistBlocksUntilEnd}
+            scrollToPlaylistMusic={scrollToPlaylistMusic}
           />
 
           <div

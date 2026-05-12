@@ -60,6 +60,7 @@ export interface MixerStripTemplateProps {
    * usam toda a altura disponível da linha (medida em tempo real).
    */
   meterFill?: boolean;
+  faderSpace?: boolean;
 }
 
 /** Layout compartilhado: escala dB · fader · VU · mute · rótulo. */
@@ -84,6 +85,7 @@ export function MixerStripTemplate({
   style,
   embed = false,
   meterFill = false,
+  faderSpace = true,
 }: MixerStripTemplateProps) {
   const chrome = embed ? "" : "border border-[#1a1a1a] p-2";
 
@@ -157,7 +159,7 @@ export function MixerStripTemplate({
           className={`flex w-full min-h-0 flex-row items-end justify-center gap-1 ${meterFill ? "flex-1" : "shrink-0"}`}
         >
           {showDbScale ? <DbScale height={trackHeight} /> : null}
-          <div className="flex shrink-0 flex-col items-center mr-2">
+          <div className={`flex shrink-0 flex-col items-center ${faderSpace ? "mr-2" : ""}`}>
             <Fader
               value={faderValue}
               onChange={onFaderChange}

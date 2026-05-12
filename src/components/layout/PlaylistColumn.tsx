@@ -1,4 +1,14 @@
-import { useCallback, type CSSProperties, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type Dispatch,
+  type MutableRefObject,
+  type SetStateAction,
+} from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import vuMasterMuted from '../../assets/vus/master-off.png';
 import vuMaster from '../../assets/vus/master.png';
@@ -79,6 +89,7 @@ export interface PlaylistColumnProps {
   playlistAppendError: string;
   loadNextPlaylistBlock: () => void | Promise<void>;
   loadAllPlaylistBlocksUntilEnd: () => void | Promise<void>;
+  scrollToPlaylistMusic: (musicId: string) => void;
 }
 
 export function PlaylistColumn({
@@ -126,12 +137,85 @@ export function PlaylistColumn({
   playlistAppendError,
   loadNextPlaylistBlock,
   loadAllPlaylistBlocksUntilEnd,
+  scrollToPlaylistMusic,
 }: PlaylistColumnProps) {
   const { getBusConfig, getVuLevel, setBusGain, setBusMuted } = useMixer();
 
   const masterConfig = getBusConfig('master');
   const masterVu = getVuLevel('master');
   const masterMutedIcon = masterConfig.muted ? vuMasterMuted : vuMaster;
+
+  const [playlistScrolledAway, setPlaylistScrolledAway] = useState(false);
+  const [jumpTargetPlaylistRowInView, setJumpTargetPlaylistRowInView] = useState(false);
+  const [pendingJumpHighlight, setPendingJumpHighlight] = useState(false);
+
+  const playlistScrollRef = useRef<HTMLDivElement>(null);
+
+  const jumpTargetMusicId = playingId ?? scheduledMusicId;
+
+  const onPlaylistScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    setPlaylistScrolledAway(e.currentTarget.scrollTop > 8);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (jumpTargetPlaylistRowInView) {
+      setPendingJumpHighlight(false);
+    }
+  }, [jumpTargetPlaylistRowInView]);
+
+  useEffect(() => {
+    const root = playlistScrollRef.current;
+    const id = jumpTargetMusicId;
+    if (!root || !id) {
+      setJumpTargetPlaylistRowInView(false);
+      return;
+    }
+
+    let observer: IntersectionObserver | undefined;
+    let raf = 0;
+
+    const observeTarget = (): void => {
+      window.cancelAnimationFrame(raf);
+      observer?.disconnect();
+      const target = playlistItemRefs.current[id];
+      if (!target) {
+        raf = window.requestAnimationFrame(observeTarget);
+        return;
+      }
+      observer = new IntersectionObserver(
+        ([entry]) => {
+          const ratio = entry?.intersectionRatio ?? 0;
+          const hasBox = !!entry?.intersectionRect.height;
+          const ok = !!(entry?.isIntersecting && (ratio > 0.01 || hasBox));
+          setJumpTargetPlaylistRowInView(ok);
+        },
+        { root, threshold: [0, 0.02, 0.05, 0.25, 0.6, 1] },
+      );
+      observer.observe(target);
+    };
+
+    observeTarget();
+    return () => {
+      window.cancelAnimationFrame(raf);
+      observer?.disconnect();
+    };
+  }, [jumpTargetMusicId, loading, error, data, visiblePlaylistGroups]);
+
+  const atJumpAnchorPoint =
+    pendingJumpHighlight || jumpTargetPlaylistRowInView;
+
+  const jumpArrowFill =
+    !playlistScrolledAway
+      ? '#454545'
+      : atJumpAnchorPoint
+        ? '#353535'
+        : '#ffffff';
+
+  const onJumpToCurrentMusic = useCallback(() => {
+    if (!jumpTargetMusicId) return;
+    setPendingJumpHighlight(true);
+    scrollToPlaylistMusic(jumpTargetMusicId);
+  }, [jumpTargetMusicId, scrollToPlaylistMusic]);
 
   const onMasterMuteToggle = useCallback(() => {
     setBusMuted('master', !masterConfig.muted);
@@ -203,6 +287,7 @@ export function PlaylistColumn({
             muteButtonTitle={masterConfig.muted ? 'Unmute' : 'Mute'}
             label=""
             embed
+            faderSpace={false}
           />
         </aside>
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
@@ -210,8 +295,15 @@ export function PlaylistColumn({
             predictedTimeLabel={playlistCurrentBlockLine.predictedTimeLabel}
             programName={playlistCurrentBlockLine.programName}
             blockType={playlistCurrentBlockLine.blockType}
+            jumpArrowFill={jumpArrowFill}
+            canJumpToCurrentMusic={jumpTargetMusicId != null}
+            onJumpToCurrentMusic={onJumpToCurrentMusic}
           />
-          <div className="scrollable-y relative flex min-h-0 flex-1 flex-col overflow-y-auto">
+          <div
+            ref={playlistScrollRef}
+            className="scrollable-y relative flex min-h-0 flex-1 flex-col overflow-y-auto"
+            onScroll={onPlaylistScroll}
+          >
             {loading && <p className="text-center p-8 text-slate-400">Carregando lista...</p>}
             {error && <div className="text-center p-8 text-red-300">{error}</div>}
 
