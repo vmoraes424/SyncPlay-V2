@@ -23,7 +23,7 @@ function resolveCoverSrc(cover: string | undefined): string | undefined {
 
 export function MusicInfo({ nowPlayingMusic }: MusicInfoProps) {
   return (
-    <div className="flex h-[50px] shrink-0 items-center gap-2 border-b border-[#353535] px-2">
+    <div className="flex h-[50px] shrink-0 items-center gap-2 border-b-4 border-[#353535] px-2">
       {nowPlayingMusic ? (
         <>
           <div className="relative h-[42px] w-[42px] shrink-0 overflow-hidden rounded bg-white/5">

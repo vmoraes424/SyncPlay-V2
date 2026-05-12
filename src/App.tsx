@@ -18,6 +18,7 @@ import { formatSecondsOfDay } from './time';
 import { SyncplayLibraryProvider } from './library/SyncplayLibraryContext';
 import { useAutoMixDetection, parseAutoMixSettings } from './hooks/useAutoMixDetection';
 import { useColumnResize } from './hooks/useColumnResize';
+import { MixerProvider } from './hooks/useMixer';
 import {
   blockMediaRecord,
   getBlockDisplayStart,
@@ -941,119 +942,121 @@ function App() {
 
   return (
     <SyncplayLibraryProvider value={libraryMaps}>
-      {/* Wrapper das 3 colunas */}
-      <div
-        ref={headerRef}
-        className="flex h-[calc(100vh-40px)] bg-[#262626] border-t-4 border-[#353535]"
-        style={{ overflow: 'hidden' }}
-      >
-
-        <PlaylistColumn
-          col1Style={col1Style}
-          nowPlayingMusic={nowPlayingMusic}
-          currentTime={currentTime}
-          duration={duration}
-          playingId={playingId}
-          scheduledMusicId={scheduledMusicId}
-          isPlaying={isPlaying}
-          playlistCurrentBlockLine={playlistCurrentBlockLine}
-          loading={loading}
-          error={error}
-          data={data}
-          visiblePlaylistGroups={visiblePlaylistGroups}
-          playlistBaseDate={playlistBaseDate}
-          playlistBlockHideDisabled={playlistBlockHideDisabled}
-          setPlaylistBlockHideDisabled={setPlaylistBlockHideDisabled}
-          playlistBlockExpanded={playlistBlockExpanded}
-          setPlaylistBlockExpanded={setPlaylistBlockExpanded}
-          setData={setData}
-          autoMixOverrides={autoMixOverrides}
-          playlistFilterVis={playlistFilterVis}
-          libraryYearDecade={libraryYearDecade}
-          showNameMusicFiles={showNameMusicFiles}
-          showNameCommercialFiles={showNameCommercialFiles}
-          showNameMediaFiles={showNameMediaFiles}
-          libMusicFilterIds={libMusicFilterIds}
-          applyPlaylistFilterClick={applyPlaylistFilterClick}
-          searchQuery={searchQuery}
-          mediaCategory={mediaCategory}
-          directoryValue={directoryValue}
-          scheduleStarts={scheduleStarts}
-          trashHighlightPlaylistId={trashHighlightPlaylistId}
-          setTrashHighlightPlaylistId={setTrashHighlightPlaylistId}
-          backgroundIds={backgroundIds}
-          backgroundDurations={backgroundDurations}
-          backgroundPositions={backgroundPositions}
-          togglePlay={togglePlay}
-          handleSeek={handleSeek}
-          playableItemsRef={playableItemsRef}
-          playlistItemRefs={playlistItemRefs}
-          playlistHasMoreTail={playlistHasMoreTail}
-          playlistAppendingDay={playlistAppendingDay}
-          playlistAppendError={playlistAppendError}
-          loadNextPlaylistBlock={loadNextPlaylistBlock}
-          loadAllPlaylistBlocksUntilEnd={loadAllPlaylistBlocksUntilEnd}
-        />
-
+      <MixerProvider>
+        {/* Wrapper das 3 colunas */}
         <div
-          className="shrink-0 cursor-col-resize bg-[#353535] hover:bg-neutral-500 transition-colors duration-150 z-10"
-          style={{ width: handleW, touchAction: 'none' }}
-          onMouseDown={onHandleMouseDown('h1')}
-        />
+          ref={headerRef}
+          className="flex h-[calc(100vh-40px)] bg-[#262626] border-t-4 border-[#353535]"
+          style={{ overflow: 'hidden' }}
+        >
 
-        <LibraryColumn
-          col2Style={col2Style}
-          playlistDateYmd={playlistBaseDate}
-          branchName={data?.header?.extra?.branch_name?.trim() || undefined}
-          branchImgUrl={data?.header?.extra?.branch_img?.trim() || undefined}
-          libraryYearDecade={libraryYearDecade}
-          mediaCategory={mediaCategory}
-          setMediaCategory={setMediaCategory}
-          directoryOptions={directoryOptions}
-          directoryValue={directoryValue}
-          setDirectoryValue={setDirectoryValue}
-          setDirectoryKind={setDirectoryKind}
-          libMusicFilterIds={libMusicFilterIds}
-          setLibMusicFilterIds={setLibMusicFilterIds}
-          resetLibMusicFilters={resetLibMusicFilters}
-          musicCategoryMap={musicCategoryMap}
-          musicStyleMap={musicStyleMap}
-          musicRhythmMap={musicRhythmMap}
-          musicNationalityMap={musicNationalityMap}
-          searchQuery={searchQuery}
-          setSearchQuery={setSearchQuery}
-          filteredFiles={filteredFiles}
-          dirError={dirError}
-          dirLoading={dirLoading}
-          dirFiles={dirFiles}
-          parentRef={parentRef}
-          rowVirtualizer={rowVirtualizer}
-          selectedFile={selectedFile}
-          setSelectedFile={setSelectedFile}
-          cueFile={cueFile}
-          setCueFile={setCueFile}
-          cuePlaying={cuePlaying}
-          setCuePlaying={setCuePlaying}
-          cueTime={cueTime}
-          setCueTime={setCueTime}
-          cueDuration={cueDuration}
-          toggleCue={toggleCue}
-          handleCueSeek={handleCueSeek}
-        />
+          <PlaylistColumn
+            col1Style={col1Style}
+            nowPlayingMusic={nowPlayingMusic}
+            currentTime={currentTime}
+            duration={duration}
+            playingId={playingId}
+            scheduledMusicId={scheduledMusicId}
+            isPlaying={isPlaying}
+            playlistCurrentBlockLine={playlistCurrentBlockLine}
+            loading={loading}
+            error={error}
+            data={data}
+            visiblePlaylistGroups={visiblePlaylistGroups}
+            playlistBaseDate={playlistBaseDate}
+            playlistBlockHideDisabled={playlistBlockHideDisabled}
+            setPlaylistBlockHideDisabled={setPlaylistBlockHideDisabled}
+            playlistBlockExpanded={playlistBlockExpanded}
+            setPlaylistBlockExpanded={setPlaylistBlockExpanded}
+            setData={setData}
+            autoMixOverrides={autoMixOverrides}
+            playlistFilterVis={playlistFilterVis}
+            libraryYearDecade={libraryYearDecade}
+            showNameMusicFiles={showNameMusicFiles}
+            showNameCommercialFiles={showNameCommercialFiles}
+            showNameMediaFiles={showNameMediaFiles}
+            libMusicFilterIds={libMusicFilterIds}
+            applyPlaylistFilterClick={applyPlaylistFilterClick}
+            searchQuery={searchQuery}
+            mediaCategory={mediaCategory}
+            directoryValue={directoryValue}
+            scheduleStarts={scheduleStarts}
+            trashHighlightPlaylistId={trashHighlightPlaylistId}
+            setTrashHighlightPlaylistId={setTrashHighlightPlaylistId}
+            backgroundIds={backgroundIds}
+            backgroundDurations={backgroundDurations}
+            backgroundPositions={backgroundPositions}
+            togglePlay={togglePlay}
+            handleSeek={handleSeek}
+            playableItemsRef={playableItemsRef}
+            playlistItemRefs={playlistItemRefs}
+            playlistHasMoreTail={playlistHasMoreTail}
+            playlistAppendingDay={playlistAppendingDay}
+            playlistAppendError={playlistAppendError}
+            loadNextPlaylistBlock={loadNextPlaylistBlock}
+            loadAllPlaylistBlocksUntilEnd={loadAllPlaylistBlocksUntilEnd}
+          />
 
-        {!isRetrieveMode && (
           <div
             className="shrink-0 cursor-col-resize bg-[#353535] hover:bg-neutral-500 transition-colors duration-150 z-10"
             style={{ width: handleW, touchAction: 'none' }}
-            onMouseDown={onHandleMouseDown('h2')}
+            onMouseDown={onHandleMouseDown('h1')}
           />
-        )}
 
-        {!isRetrieveMode && <MixerColumn />}
+            <LibraryColumn
+            col2Style={col2Style}
+            playlistDateYmd={playlistBaseDate}
+            branchName={data?.header?.extra?.branch_name?.trim() || undefined}
+            branchImgUrl={data?.header?.extra?.branch_img?.trim() || undefined}
+            libraryYearDecade={libraryYearDecade}
+            mediaCategory={mediaCategory}
+            setMediaCategory={setMediaCategory}
+            directoryOptions={directoryOptions}
+            directoryValue={directoryValue}
+            setDirectoryValue={setDirectoryValue}
+            setDirectoryKind={setDirectoryKind}
+            libMusicFilterIds={libMusicFilterIds}
+            setLibMusicFilterIds={setLibMusicFilterIds}
+            resetLibMusicFilters={resetLibMusicFilters}
+            musicCategoryMap={musicCategoryMap}
+            musicStyleMap={musicStyleMap}
+            musicRhythmMap={musicRhythmMap}
+            musicNationalityMap={musicNationalityMap}
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            filteredFiles={filteredFiles}
+            dirError={dirError}
+            dirLoading={dirLoading}
+            dirFiles={dirFiles}
+            parentRef={parentRef}
+            rowVirtualizer={rowVirtualizer}
+            selectedFile={selectedFile}
+            setSelectedFile={setSelectedFile}
+            cueFile={cueFile}
+            setCueFile={setCueFile}
+            cuePlaying={cuePlaying}
+            setCuePlaying={setCuePlaying}
+            cueTime={cueTime}
+            setCueTime={setCueTime}
+            cueDuration={cueDuration}
+            toggleCue={toggleCue}
+            handleCueSeek={handleCueSeek}
+          />
 
-      </div>
+          {!isRetrieveMode && (
+            <div
+              className="shrink-0 cursor-col-resize bg-[#353535] hover:bg-neutral-500 transition-colors duration-150 z-10"
+              style={{ width: handleW, touchAction: 'none' }}
+              onMouseDown={onHandleMouseDown('h2')}
+            />
+          )}
 
-      <SettingsDock />
+          {!isRetrieveMode && <MixerColumn />}
+
+        </div>
+
+        <SettingsDock />
+      </MixerProvider>
     </SyncplayLibraryProvider>
   );
 }

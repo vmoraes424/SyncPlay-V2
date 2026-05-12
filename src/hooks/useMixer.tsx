@@ -1,6 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 // ---------------------------------------------------------------------------
 // Tipos
@@ -75,11 +83,46 @@ export const BUSES = ["master", "monitor", "retorno"] as const;
 export type ChannelId = (typeof CHANNELS)[number];
 export type BusId = (typeof BUSES)[number];
 
+export type MixerApi = {
+  routing: MixerRouting;
+  vuLevels: Record<string, VuLevel>;
+  devices: AudioDevice[];
+  getChannelGain: (ch: string) => ChannelGain;
+  getChannelRouting: (ch: string) => ChannelRouting;
+  setChannelGain: (channel: string, value: number) => void;
+  setChannelMuted: (channel: string, muted: boolean) => void;
+  toggleMasterRoute: (channel: string) => void;
+  toggleMonitorRoute: (channel: string) => void;
+  toggleRetornoRoute: (channel: string) => void;
+  toggleOutRoute: (channel: string) => void;
+  getBusConfig: (bus: "master" | "monitor" | "retorno") => BusConfig;
+  setBusGain: (bus: string, value: number) => void;
+  setBusMuted: (bus: string, muted: boolean) => void;
+  setBusDevice: (bus: string, deviceId: string | null) => void;
+  getVuLevel: (ch: string) => VuLevel;
+};
+
+const MixerContext = createContext<MixerApi | null>(null);
+
+export function MixerProvider({ children }: { children: ReactNode }) {
+  const value = useMixerState();
+  return <MixerContext.Provider value={value}>{children}</MixerContext.Provider>;
+}
+
+/** Estado compartilhado do mixer (deve estar dentro de {@link MixerProvider}). */
+export function useMixer(): MixerApi {
+  const ctx = useContext(MixerContext);
+  if (!ctx) {
+    throw new Error("useMixer deve ser usado dentro de MixerProvider");
+  }
+  return ctx;
+}
+
 // ---------------------------------------------------------------------------
-// Hook
+// Estado interno (uma única instância por árvore MixerProvider)
 // ---------------------------------------------------------------------------
 
-export function useMixer() {
+function useMixerState(): MixerApi {
   const [routing, setRouting] = useState<MixerRouting>({
     channels: Object.fromEntries(CHANNELS.map((c) => [c, { ...DEFAULT_CHANNEL }])),
     routing: Object.fromEntries(CHANNELS.map((c) => [c, { ...DEFAULT_ROUTING }])),
@@ -111,9 +154,9 @@ export function useMixer() {
 
     listen<MixerTickPayload>("mixer:tick", (event) => {
       if (cancelled) return;
-      
+
       const { levels, channels, routing: newRouting, master, monitor, retorno } = event.payload;
-      
+
       const merged: MixerRouting = {
         channels,
         routing: newRouting,
@@ -190,20 +233,17 @@ export function useMixer() {
   // ------------------------------------------------------------------
 
   const getChannelGain = useCallback(
-    (ch: string): ChannelGain =>
-      routing.channels[ch] ?? { ...DEFAULT_CHANNEL },
+    (ch: string): ChannelGain => routing.channels[ch] ?? { ...DEFAULT_CHANNEL },
     [routing.channels]
   );
 
   const getChannelRouting = useCallback(
-    (ch: string): ChannelRouting =>
-      routing.routing[ch] ?? { ...DEFAULT_ROUTING },
+    (ch: string): ChannelRouting => routing.routing[ch] ?? { ...DEFAULT_ROUTING },
     [routing.routing]
   );
 
   const getBusConfig = useCallback(
-    (bus: "master" | "monitor" | "retorno"): BusConfig =>
-      routing[bus] ?? { ...DEFAULT_BUS },
+    (bus: "master" | "monitor" | "retorno"): BusConfig => routing[bus] ?? { ...DEFAULT_BUS },
     [routing]
   );
 

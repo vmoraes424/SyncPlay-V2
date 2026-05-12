@@ -184,7 +184,7 @@ export function LibraryColumn({
             </span>
           </div>
         ) : null}
-        <div className="flex gap-2">
+        <div className="flex gap-2 px-2">
           <select
             className="flex-1 bg-white/5 border border-[#353535] rounded-lg px-3 py-1.5 text-white/90 text-[0.8rem] outline-none transition-colors focus:border-neutral-500 [&>option]:bg-[#262626] [&>option]:text-white"
             value={mediaCategory}
@@ -310,7 +310,7 @@ export function LibraryColumn({
           </div>
         )}
 
-        <div className="flex items-center gap-2 bg-white/3 border border-[#353535] rounded-lg px-3 py-1.5">
+        <div className="flex items-center gap-2 bg-white/3 border border-[#353535] rounded-lg px-3 mx-2 mb-2 py-1.5">
           <span className="text-[0.85rem] opacity-70" aria-hidden>🔍</span>
           <input id="buscaMidia" className="flex-1 bg-transparent border-none outline-none text-white/90 text-[0.85rem] placeholder:text-slate-500"
             placeholder="Buscar mídia..." value={searchQuery}

@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { VuLevel } from "../../hooks/useMixer";
 import { Fader } from "./Fader";
 import { VuMeter } from "./VuMeter";
@@ -9,17 +9,25 @@ const WHEEL_LINE_PX = 120;
 /** Quanto mover o ganho [0,1] por cada linha de rolagem. */
 const WHEEL_GAIN_PER_LINE = 0.08;
 
+const DB_SCALE_LABELS = ["+10", "+5", "0", "-5", "-10", "-20", "-30", "-40", "-60", "-∞"] as const;
+
 function DbScale({ height }: { height: number }) {
   return (
     <div
-      className="flex w-3 shrink-0 flex-col justify-between py-0.5 text-right text-[6px] font-semibold leading-none text-neutral-500 select-none"
+      className="flex shrink-0 flex-col justify-between py-0.5 pr-0.5 text-[8px] font-semibold leading-none text-neutral-500 select-none"
       style={{ height }}
       aria-hidden
     >
-      <span>0</span>
-      <span>-20</span>
-      <span>-40</span>
-      <span>-∞</span>
+      {DB_SCALE_LABELS.map((label) => (
+        <div key={label} className="flex items-center justify-end gap-1">
+          <span
+            className={`text-right tabular-nums ${label === "0" ? "text-white" : ""}`}
+          >
+            {label}
+          </span>
+          <span className={`h-px w-1 shrink-0 rounded-full ${label === "0" ? "bg-white" : "bg-neutral-500/75"}`} />
+        </div>
+      ))}
     </div>
   );
 }
@@ -47,6 +55,11 @@ export interface MixerStripTemplateProps {
   style?: CSSProperties;
   /** Sem borda/padding do cartão — uso dentro de ChannelStrip. */
   embed?: boolean;
+  /**
+   * Quando true, o cartão cresce no eixo vertical (`flex-1` / `h-full`) e fader + VU + escala dB
+   * usam toda a altura disponível da linha (medida em tempo real).
+   */
+  meterFill?: boolean;
 }
 
 /** Layout compartilhado: escala dB · fader · VU · mute · rótulo. */
@@ -70,8 +83,12 @@ export function MixerStripTemplate({
   className = "",
   style,
   embed = false,
+  meterFill = false,
 }: MixerStripTemplateProps) {
   const chrome = embed ? "" : "border border-[#1a1a1a] p-2";
+
+  const meterRowRef = useRef<HTMLDivElement>(null);
+  const [meterPx, setMeterPx] = useState(Math.max(48, faderHeight));
 
   const faderValueRef = useRef(faderValue);
   useEffect(() => {
@@ -102,9 +119,31 @@ export function MixerStripTemplate({
     return () => el.removeEventListener("wheel", handleWheel);
   }, [handleWheel]);
 
+  useEffect(() => {
+    if (!meterFill) return;
+    const el = meterRowRef.current;
+    if (!el) return;
+
+    const apply = () => {
+      const h = el.getBoundingClientRect().height;
+      const next = Math.max(48, Math.round(h));
+      setMeterPx((prev) => (prev === next ? prev : next));
+    };
+
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [meterFill]);
+
+  const trackHeight = meterFill ? meterPx : faderHeight;
+  const rootSizeClass = meterFill
+    ? "min-h-0 h-full flex-1"
+    : "h-[270px] shrink-0";
+
   return (
     <div
-      className={`box-border flex min-h-0 h-[270px] shrink-0 flex-col items-center gap-1.5 text-center transition-opacity ${chrome} ${className}`}
+      className={`box-border flex min-h-0 flex-col items-center gap-1.5 text-center transition-opacity ${rootSizeClass} ${chrome} ${className}`}
       style={style}
     >
       {header}
@@ -113,20 +152,23 @@ export function MixerStripTemplate({
         ref={wheelAreaRef}
         className="flex w-full min-h-0 flex-1 flex-col items-center gap-1.5"
       >
-        <div className="flex w-full shrink-0 flex-row items-end justify-center gap-1">
-          {showDbScale ? <DbScale height={faderHeight} /> : null}
+        <div
+          ref={meterRowRef}
+          className={`flex w-full min-h-0 flex-row items-end justify-center gap-1 ${meterFill ? "flex-1" : "shrink-0"}`}
+        >
+          {showDbScale ? <DbScale height={trackHeight} /> : null}
           <div className="flex shrink-0 flex-col items-center mr-2">
             <Fader
               value={faderValue}
               onChange={onFaderChange}
-              height={faderHeight}
+              height={trackHeight}
               color={faderColor}
               thumbSrc={faderThumbSrc}
               disabled={faderDisabled}
             />
           </div>
           <div className="shrink-0">
-            <VuMeter level={vuLevel} height={faderHeight} barWidth={vuBarWidth} gap={vuGap} />
+            <VuMeter level={vuLevel} height={trackHeight} barWidth={vuBarWidth} gap={vuGap} />
           </div>
         </div>
 
