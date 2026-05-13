@@ -2,7 +2,7 @@ import type { Music, MediaCategory } from '../types';
 import type { LibMusicFiltersState } from '../hooks/useSyncplayLibrary';
 
 import { formatTimeRemaining } from '../time';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import proximaBcoImg from '../assets/proxima_bco.png';
 import lixeiraImg from '../assets/lixeira.png';
 import refraoPlayGif from '../assets/refraoPlay.gif';
@@ -281,14 +281,30 @@ export function PlaylistMusicItem({
   const hasIntroControl = introSeekMs != null;
   const [refrainUi, setRefrainUi] = useState<'idle' | 'playing' | 'flash'>('idle');
   const refrainFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const prevVisuallyPlayingRef = useRef(isVisuallyPlaying);
+  const prevCurrentlyPlayingRef = useRef(isCurrentlyPlaying);
+
+  const beginRefrainStopFlash = useCallback(() => {
+    if (refrainFlashTimerRef.current != null) {
+      clearTimeout(refrainFlashTimerRef.current);
+      refrainFlashTimerRef.current = null;
+    }
+    setRefrainUi('flash');
+    refrainFlashTimerRef.current = setTimeout(() => {
+      setRefrainUi('idle');
+      refrainFlashTimerRef.current = null;
+    }, 3000);
+  }, []);
 
   useEffect(() => {
-    if (prevVisuallyPlayingRef.current && !isVisuallyPlaying) {
-      setRefrainUi('idle');
+    if (
+      prevCurrentlyPlayingRef.current &&
+      !isCurrentlyPlaying &&
+      refrainUi === 'playing'
+    ) {
+      beginRefrainStopFlash();
     }
-    prevVisuallyPlayingRef.current = isVisuallyPlaying;
-  }, [isVisuallyPlaying]);
+    prevCurrentlyPlayingRef.current = isCurrentlyPlaying;
+  }, [isCurrentlyPlaying, refrainUi, beginRefrainStopFlash]);
 
   useEffect(() => {
     return () => {
@@ -512,17 +528,16 @@ export function PlaylistMusicItem({
               });
         void p.catch((e) => {
           console.error(e);
+          if (refrainFlashTimerRef.current != null) {
+            clearTimeout(refrainFlashTimerRef.current);
+            refrainFlashTimerRef.current = null;
+          }
           setRefrainUi('idle');
         });
         return;
       }
       if (refrainUi === 'playing') {
-        if (refrainFlashTimerRef.current != null) clearTimeout(refrainFlashTimerRef.current);
-        setRefrainUi('flash');
-        refrainFlashTimerRef.current = setTimeout(() => {
-          setRefrainUi('idle');
-          refrainFlashTimerRef.current = null;
-        }, 3000);
+        beginRefrainStopFlash();
         return;
       }
       return;
@@ -538,6 +553,9 @@ export function PlaylistMusicItem({
     ev.stopPropagation();
     if (isDisabled || introSeekMs == null) return;
     if (onIntroSeekTo == null) return;
+    if (refrainUi === 'playing') {
+      beginRefrainStopFlash();
+    }
     void Promise.resolve(onIntroSeekTo(introSeekMs)).catch(console.error);
   }
 
