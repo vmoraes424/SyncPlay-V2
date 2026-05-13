@@ -301,6 +301,7 @@ export function PlaylistColumn({
           />
           <div
             ref={playlistScrollRef}
+            data-playlist-scroll
             className="scrollable-y relative flex min-h-0 flex-1 flex-col overflow-y-auto"
             onScroll={onPlaylistScroll}
           >

@@ -25,6 +25,12 @@ import {
   legacyBool,
   mediaDurationMs,
 } from './playlist/playlistBlockHelpers';
+import {
+  getSyncPlaySn,
+  loadApiConfig,
+  mergeSuperaudioApiConfig,
+  type SuperaudioApiConfig,
+} from './api/apiConfig';
 
 async function fetchConfigSafe<T>(filename: string): Promise<T | null> {
   try {
@@ -301,6 +307,14 @@ function App() {
     });
   }, []);
 
+  /** `%LOCALAPPDATA%\\SuperAudio\\configAPI` — campo `sn` para `X-SyncPlay-SN`. */
+  const [superaudioApiConfig, setSuperaudioApiConfig] = useState<SuperaudioApiConfig>(() =>
+    mergeSuperaudioApiConfig(undefined)
+  );
+  useEffect(() => {
+    void loadApiConfig().then(setSuperaudioApiConfig);
+  }, []);
+
   // Objeto estável: só recria quando os valores primitivos mudam de fato
   const autoMixSettings = useMemo<AutoMixSettings | null>(
     () => (autoMixEnabled || autoMixMediaEnabled ? {
@@ -312,6 +326,17 @@ function App() {
     } : null),
     [autoMixEnabled, autoMixMediaEnabled, musicMixSensitivity, mediaMixSensitivity, mixTypeAdvanced]
   );
+
+  /** `X-SyncPlay-SN`: arquivo Superaudio `sn` com fallback na estação da playlist. */
+  const syncPlaySnForApi = useMemo(() => {
+    const fromFile = getSyncPlaySn(superaudioApiConfig);
+    const fromPlaylist = data?.header?.extra?.station?.trim() ?? '';
+    return fromFile || fromPlaylist || undefined;
+  }, [superaudioApiConfig, data?.header?.extra?.station]);
+
+  const reloadSuperaudioApiConfig = useCallback(() => {
+    return loadApiConfig({ force: true }).then(setSuperaudioApiConfig);
+  }, []);
 
   useEffect(() => {
     if (playingId == null) return;
@@ -770,7 +795,21 @@ function App() {
       const element = playlistItemRefs.current[musicId];
       if (!element) return;
 
-      element.scrollIntoView({ behavior: "smooth", block: "start" });
+      const playlistScroll = element.closest("[data-playlist-scroll]");
+      if (playlistScroll instanceof HTMLElement) {
+        const rootRect = playlistScroll.getBoundingClientRect();
+        const elRect = element.getBoundingClientRect();
+        const gutter = 8;
+        const nextTop =
+          playlistScroll.scrollTop + (elRect.top - rootRect.top) - gutter;
+        playlistScroll.scrollTo({
+          top: Math.max(0, nextTop),
+          behavior: "smooth",
+        });
+      } else {
+        element.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+
       element.classList.add("playlist-scroll-highlight");
       window.setTimeout(() => {
         element.classList.remove("playlist-scroll-highlight");
@@ -1084,6 +1123,8 @@ function App() {
             setDirectoryValue={setDirectoryValue}
             setDirectoryKind={setDirectoryKind}
             playlistStationCode={data?.header?.extra?.station?.trim()}
+            syncPlaySn={syncPlaySnForApi}
+            onReloadSuperaudioApiConfig={reloadSuperaudioApiConfig}
             libraryReloadBusy={libraryReloadBusy}
             libraryReloadError={libraryReloadError}
             onReloadLibrary={() => void handleReloadLibraryFromApi()}

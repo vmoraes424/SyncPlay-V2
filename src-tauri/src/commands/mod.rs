@@ -6,3 +6,6 @@ pub mod schedule;
 pub mod settings;
 pub mod weather;
 pub mod library_sync;
+pub mod library_media_resolve;
+pub mod api_config;
+pub mod superaudio_prompts;

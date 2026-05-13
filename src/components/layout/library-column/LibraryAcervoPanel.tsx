@@ -162,11 +162,11 @@ export function LibraryAcervoPanel({
       id="library-tabpanel-acervo"
       role="tabpanel"
       aria-labelledby="library-tab-acervo"
-      className="flex flex-1 flex-col overflow-hidden min-h-0"
+      className="flex flex-1 flex-col overflow-hidden min-h-0 bg-[#1e1e1e]"
       hidden={hidden}
     >
-      <div className="flex flex-col gap-2 shrink-0 border-b border-[#353535] pb-2">
-        <div ref={musicSelectsRowRef} className="flex gap-0.5 bg-[#363636]">
+      <div className="flex flex-col gap-2 shrink-0 pb-2 ">
+        <div ref={musicSelectsRowRef} className="flex gap-0.5 bg-[#363636] pb-1">
           <select
             className="flex-1 bg-[#262626] border border-[#353535] px-3 py-1.5 text-white/90 text-[0.8rem] outline-none transition-colors focus:border-neutral-500 [&>option]:bg-[#262626] [&>option]:text-white"
             value={mediaCategory}

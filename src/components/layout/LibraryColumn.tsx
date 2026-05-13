@@ -65,6 +65,10 @@ export interface LibraryColumnProps {
   handleCueSeek: (e: React.ChangeEvent<HTMLInputElement>) => void;
   /** Presente quando a playlist expõe `header.extra.station` (sync API acervo). */
   playlistStationCode?: string;
+  /** `X-SyncPlay-SN` — prioriza `sn` do arquivo `%LOCALAPPDATA%\\SuperAudio\\configAPI`; senão pode coincidir com a estação da playlist. */
+  syncPlaySn?: string;
+  /** Relê arquivo `configAPI` e atualiza `window.apiConfig` (ex.: antes de atualizar prompts na nuvem). */
+  onReloadSuperaudioApiConfig?: () => Promise<void>;
   libraryReloadBusy: boolean;
   libraryReloadError: string;
   onReloadLibrary: () => void;
@@ -109,6 +113,8 @@ export function LibraryColumn({
   stopCuePlayer,
   handleCueSeek,
   playlistStationCode,
+  syncPlaySn,
+  onReloadSuperaudioApiConfig,
   libraryReloadBusy,
   libraryReloadError,
   onReloadLibrary,
@@ -206,7 +212,7 @@ export function LibraryColumn({
         ) : null}
       </div>
 
-      <div className='px-2 py-3'>
+      <div className='p-2'>
         <p className='text-neutral-400 text-xs text-left font-bold'>
           ON AIR:
           <span className='text-white text-left text-normal italic'> MANHÃ NEXT RÁDIO</span>
@@ -386,7 +392,13 @@ export function LibraryColumn({
           libraryReloadError={libraryReloadError}
           onReloadLibrary={onReloadLibrary}
         />
-        {libraryTab === 'ia' ? <LibraryIaTab /> : null}
+        {libraryTab === 'ia' ? (
+          <LibraryIaTab
+            syncPlaySn={syncPlaySn}
+            playlistStationFallback={playlistStationCode}
+            onReloadSuperaudioApiConfig={onReloadSuperaudioApiConfig}
+          />
+        ) : null}
         {libraryTab === 'tocou' ? <LibraryTocouTab /> : null}
       </div>
     </div>
