@@ -392,13 +392,12 @@ export function LibraryColumn({
           libraryReloadError={libraryReloadError}
           onReloadLibrary={onReloadLibrary}
         />
-        {libraryTab === 'ia' ? (
-          <LibraryIaTab
-            syncPlaySn={syncPlaySn}
-            playlistStationFallback={playlistStationCode}
-            onReloadSuperaudioApiConfig={onReloadSuperaudioApiConfig}
-          />
-        ) : null}
+        <LibraryIaTab
+          hidden={libraryTab !== 'ia'}
+          syncPlaySn={syncPlaySn}
+          playlistStationFallback={playlistStationCode}
+          onReloadSuperaudioApiConfig={onReloadSuperaudioApiConfig}
+        />
         {libraryTab === 'tocou' ? <LibraryTocouTab /> : null}
       </div>
     </div>

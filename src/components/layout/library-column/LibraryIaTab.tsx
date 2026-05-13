@@ -29,6 +29,8 @@ import {
 import { getSyncPlaySn } from '../../../api/apiConfig';
 
 export interface LibraryIaTabProps {
+  /** Quando verdadeiro, o painel fica montado mas oculto (evita novo fetch ao trocar de aba da biblioteca). */
+  hidden?: boolean;
   /**
    * Prioridade sobre `playlistStationFallback` — já deve refletir `sn` do arquivo quando o App faz merge.
    * Header HTTP: `X-SyncPlay-SN`.
@@ -125,6 +127,7 @@ function IconPromptGlobal({ active }: { active: boolean }) {
 }
 
 export function LibraryIaTab({
+  hidden,
   syncPlaySn,
   playlistStationFallback,
   onReloadSuperaudioApiConfig,
@@ -208,6 +211,10 @@ export function LibraryIaTab({
   useEffect(() => {
     void loadAll();
   }, [loadAll]);
+
+  useEffect(() => {
+    if (hidden) setCadastrarOpen(false);
+  }, [hidden]);
 
   const visibleCards = listMode === 'company' ? companyCards : globalCards;
 
@@ -309,6 +316,7 @@ export function LibraryIaTab({
       role="tabpanel"
       aria-labelledby="library-tab-ia"
       className="flex flex-1 min-h-0 flex-col overflow-hidden bg-[#1e1e1e]"
+      hidden={hidden}
     >
       <div className="flex flex-col gap-2 shrink-0">
         {/* Barra `.search-ai-container`: empresa × global + busca + refresh */}

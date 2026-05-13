@@ -1,11 +1,9 @@
 .settings-taskbar {
-  position: fixed;
-  right: 0;
-  bottom: 0;
-  left: 0;
+  flex-shrink: 0;
   z-index: 80;
   display: flex;
   align-items: center;
+  width: 100%;
   height: 40px;
   padding: 0 14px;
   border-top: 1px solid #353535;
@@ -24,11 +22,14 @@
 
 .settings-modal {
   position: fixed;
-  bottom: 62px;
+  top: 36px;
+  bottom: 52px;
   left: max(12px, calc(25vw - 325px));
   z-index: 90;
+  display: flex;
+  flex-direction: column;
   width: min(650px, calc(100vw - 24px));
-  max-height: calc(100vh - 82px);
+  max-height: none;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 16px;
@@ -42,6 +43,7 @@
 }
 
 .settings-modal__header {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   min-height: 56px;
@@ -102,10 +104,14 @@
 }
 
 .settings-menu-grid {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   padding: 14px;
+  align-content: start;
 }
 
 .settings-menu-card,
@@ -172,7 +178,8 @@
 }
 
 .settings-content {
-  max-height: calc(100vh - 138px);
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 14px;
 }
