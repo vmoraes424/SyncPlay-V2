@@ -685,6 +685,43 @@ function App() {
     }
   }, [cueFile, cuePlaying]);
 
+  const toggleCuePlaybackToolbar = useCallback(async () => {
+    if (!cueFile) return;
+    const cueId = `cue-player`;
+    if (cuePlaying) {
+      await invoke("stop_independent", { id: cueId });
+      setCuePlaying(false);
+    } else {
+      const item: PlayableItem = {
+        id: cueId,
+        media_id: cueFile,
+        path: cueFile,
+        media_type: "music",
+        mixer_bus: "cue",
+        mix_end_ms: null,
+        duration_ms: null,
+        fade_duration_ms: null,
+        fade_out_time_ms: null,
+        manual_fade_out_ms: 100,
+      };
+      setCueTime(0);
+      try {
+        await invoke("play_independent", { item });
+        setCuePlaying(true);
+      } catch (err) {
+        console.error("Erro ao tocar cue:", err);
+        setCuePlaying(false);
+      }
+    }
+  }, [cueFile, cuePlaying]);
+
+  const stopCuePlayer = useCallback(async () => {
+    await invoke("stop_independent", { id: "cue-player" }).catch(console.error);
+    setCuePlaying(false);
+    setCueTime(0);
+    setCueFile(null);
+  }, []);
+
   const handleCueSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     const t = Number(e.target.value);
     setCueTime(t);
@@ -1034,13 +1071,13 @@ function App() {
             selectedFile={selectedFile}
             setSelectedFile={setSelectedFile}
             cueFile={cueFile}
-            setCueFile={setCueFile}
             cuePlaying={cuePlaying}
             setCuePlaying={setCuePlaying}
             cueTime={cueTime}
-            setCueTime={setCueTime}
             cueDuration={cueDuration}
             toggleCue={toggleCue}
+            toggleCuePlaybackToolbar={toggleCuePlaybackToolbar}
+            stopCuePlayer={stopCuePlayer}
             handleCueSeek={handleCueSeek}
           />
 

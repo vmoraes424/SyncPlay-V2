@@ -56,7 +56,7 @@ export function emptyLibMusicFilters(): LibMusicFiltersState {
   };
 }
 
-function hasAnyLibMusicFacet(f: LibMusicFiltersState): boolean {
+export function hasAnyLibMusicFacet(f: LibMusicFiltersState): boolean {
   return !!(
     f.categoryId ||
     f.styleId ||
