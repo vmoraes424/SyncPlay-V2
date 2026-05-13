@@ -21,6 +21,7 @@ import { FiltersIcon } from '../assets/FiltersIcon';
 import { ArtistIcon } from '../assets/ArtistIcon';
 import { VarinhaMagicaIcon } from '../assets/VarinhaMagica';
 import { ReloadMusicIcon } from '../assets/ReloadMusicIcon';
+import { getPlaylistItemFallbackCover } from '../lib/playlistItemCover';
 
 // ─── Gradientes e bordas por tipo de mídia ────────────────────────────────────
 
@@ -332,6 +333,10 @@ export function PlaylistMusicItem({
   const mediaAcervo =
     !isMusicKind && music.path ? getMediaAcervoLabels(mediaLibrary, mediaFilters, music.path) : null;
 
+  const fallbackCoverSrc = getPlaylistItemFallbackCover(music.type, mediaAcervo);
+  const coverSrc =
+    music.cover != null && String(music.cover).trim() !== '' ? String(music.cover) : fallbackCoverSrc;
+
   const catLabel = resolveFilterLabel(musicFilters, ['categories', 'category'], music.extra?.category);
   const styleLabel = resolveFilterLabel(musicFilters, ['styles', 'style', 'estilos'], music.extra?.style);
   const rhythmLabel = resolveFilterLabel(musicFilters, ['rhythms', 'rhythm', 'ritmos'], music.extra?.rhythm);
@@ -445,15 +450,17 @@ export function PlaylistMusicItem({
     >
       <div className="flex flex-row gap-3 items-center w-full min-w-0">
         <div className="relative w-[100px] h-[100px] shrink-0 rounded-xl overflow-hidden bg-white/5">
-          {music.cover ? (
-            <img
-              src={music.cover}
-              alt=""
-              className="absolute inset-0 w-full h-full object-cover"
-            />
-          ) : (
-            <div className="absolute inset-0 bg-white/5" />
-          )}
+          <img
+            src={coverSrc}
+            alt=""
+            className="absolute inset-0 w-full h-full object-cover"
+            onError={(e) => {
+              const el = e.currentTarget;
+              if (el.dataset.coverFallback === '1') return;
+              el.dataset.coverFallback = '1';
+              el.src = fallbackCoverSrc;
+            }}
+          />
           {music.path ? (
             <button
               className={[

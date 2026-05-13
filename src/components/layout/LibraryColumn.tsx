@@ -14,6 +14,7 @@ import { LibraryColumnTabBar } from './library-column/LibraryColumnTabBar';
 import { LibraryIaTab } from './library-column/LibraryIaTab';
 import { LibraryTocouTab } from './library-column/LibraryTocouTab';
 import type { LibraryColumnTabId } from './library-column/types';
+import { MarqueeText } from '../MarqueeText';
 
 export interface WeatherCurrentPayload {
   cityLabel: string;
@@ -212,14 +213,22 @@ export function LibraryColumn({
         ) : null}
       </div>
 
-      <div className='p-2 relative'>
-        <p className='text-neutral-400 text-xs text-left font-bold'>
-          ON AIR:
-          <span className='text-white text-left text-normal italic'> MANHÃ NEXT RÁDIO</span>
+      <div className="relative min-w-0 p-2">
+        <p className="flex min-w-0 items-baseline gap-1 text-left text-xs font-bold text-neutral-400">
+          <span className="shrink-0">ON AIR:</span>
+          <div className="min-w-0 flex-1">
+            <MarqueeText
+              text="MANHÃ NEXT RÁDIO"
+              className="text-left font-normal italic text-white"
+            />
+          </div>
         </p>
-        <div className='flex items-center gap-2 relative w-full'>
-          <p className='text-neutral-400 text-xs text-left font-bold'>RDS:
-            <span className='text-white text-left text-normal'> 102.5 FM</span>
+        <div className="relative flex w-full min-w-0 items-center gap-2">
+          <p className="flex min-w-0 flex-1 items-baseline gap-1 pr-9 text-left text-xs font-bold text-neutral-400">
+            <span className="shrink-0">RDS:</span>
+            <div className="min-w-0 flex-1">
+              <MarqueeText text="102.5 FM" className="text-left font-normal text-white" />
+            </div>
           </p>
           <svg className='w-6 h-6 absolute right-2 top-0' id="rdsManual" data-status="0" viewBox="0 0 33 33" fill="none"
             xmlns="http://www.w3.org/2000/svg">
