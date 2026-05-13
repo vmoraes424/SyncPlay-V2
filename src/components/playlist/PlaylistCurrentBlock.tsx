@@ -1,5 +1,6 @@
 import { CircleDollarSign, Music2 } from "lucide-react";
 import streaming from "../../assets/streaming_in_clock_off.png";
+import { MarqueeText } from "../MarqueeText";
 
 interface PlaylistCurrentBlockProps {
   predictedTimeLabel: string | null;
@@ -39,19 +40,17 @@ export function PlaylistCurrentBlock({
       role="status"
       aria-live="polite"
     >
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 flex-1 items-center gap-2">
         {showIcon ? (
           <Icon className="shrink-0" color="white" size={14} strokeWidth={2} aria-hidden />
         ) : null}
         {line ? (
-          <span className="min-w-0 truncate text-[0.78rem] uppercase text-slate-200" title={line}>
-            {line}
-          </span>
+          <MarqueeText text={line} className="text-[0.78rem] uppercase text-slate-200" />
         ) : (
           <span className="text-[0.72rem] text-slate-500">Sem programa na fila</span>
         )}
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex shrink-0 items-center gap-3">
         <p id="played-music-btn-top" className="flex items-center justify-center cursor-pointer bg-[#4d4d4d] m-0 transition-all uppercase text-xs duration-200 rounded-md p-0.5 px-2">
           <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px"
             fill="#e3e3e3">

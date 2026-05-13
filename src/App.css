@@ -377,3 +377,20 @@ select,
 .animate-fade-bar {
   animation: fadeOutGradient 0.45s ease-out forwards;
 }
+
+/* Marquee horizontal (duas cópias; translate -50% = um ciclo contínuo) */
+@keyframes marquee-scroll-x {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+.marquee-infinite-track {
+  animation-name: marquee-scroll-x;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
