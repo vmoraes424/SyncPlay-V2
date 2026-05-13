@@ -6,7 +6,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { DirFile, DirectoryOption, DirectoryOptionKind, MediaCategory } from '../../../types';
 import { hasAnyLibMusicFacet, type LibMusicFiltersState } from '../../../hooks/useSyncplayLibrary';
 import { LibraryMediaListItem } from '../LibraryMediaListItem';
-import { ArrowDownWideNarrow, X } from 'lucide-react';
+import { Funnel, X } from 'lucide-react';
 
 export interface LibraryAcervoPanelProps {
   hidden?: boolean;
@@ -225,7 +225,7 @@ export function LibraryAcervoPanel({
             aria-label="Limpar filtros de música e busca"
             title="Limpar filtros de música e busca"
             onClick={() => clearFiltersAndMediaSearch()}
-            className={`shrink-0 rounded p-0.5 outline-none transition-colors hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-neutral-500 ${filtersOrSearchDirty ? 'text-white' : 'text-[#323232]'
+            className={`shrink-0 rounded cursor-pointer p-0.5 outline-none transition-colors hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-neutral-500 ${filtersOrSearchDirty ? 'text-white' : 'text-[#323232]'
               }`}
           >
             <svg
@@ -250,10 +250,10 @@ export function LibraryAcervoPanel({
             aria-label="Abrir filtros de música"
             aria-expanded={musicFiltersModalOpen}
             aria-haspopup="dialog"
-            className="shrink-0 rounded p-0.5 text-[#e3e3e3] outline-none transition-opacity enabled:hover:bg-white/10 enabled:focus-visible:ring-2 enabled:focus-visible:ring-neutral-500 disabled:cursor-not-allowed disabled:opacity-35"
+            className="shrink-0 rounded cursor-pointer p-0.5 text-[#e3e3e3] outline-none transition-opacity enabled:hover:bg-white/10 enabled:focus-visible:ring-2 enabled:focus-visible:ring-neutral-500 disabled:cursor-not-allowed disabled:opacity-35"
             onClick={() => setMusicFiltersModalOpen((o) => !o)}
           >
-            <ArrowDownWideNarrow className="size-6" aria-hidden />
+            <Funnel className="size-5" aria-hidden />
           </button>
           <button
             type="button"
@@ -270,7 +270,7 @@ export function LibraryAcervoPanel({
             disabled={libraryReloadBusy || !playlistStationCode}
             id="reloadLibrary"
             onClick={() => onReloadLibrary()}
-            className="shrink-0 rounded p-0.5 text-[#e3e3e3] outline-none transition-colors enabled:hover:bg-white/10 enabled:focus-visible:ring-2 enabled:focus-visible:ring-neutral-500 disabled:opacity-35 disabled:cursor-not-allowed"
+            className="shrink-0 rounded cursor-pointer p-0.5 text-[#e3e3e3] outline-none transition-colors enabled:hover:bg-white/10 enabled:focus-visible:ring-2 enabled:focus-visible:ring-neutral-500 disabled:opacity-35 disabled:cursor-not-allowed"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
