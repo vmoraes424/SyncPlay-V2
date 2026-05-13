@@ -428,7 +428,10 @@ function App() {
   const [dirFiles, setDirFiles] = useState<DirFile[]>([]);
   const [dirLoading, setDirLoading] = useState(false);
   const [dirError, setDirError] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [libraryRefreshKey, setLibraryRefreshKey] = useState(0);
+  const [libraryReloadBusy, setLibraryReloadBusy] = useState(false);
+  const [libraryReloadError, setLibraryReloadError] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
 
   const {
@@ -453,10 +456,37 @@ function App() {
     mediaCategory,
     directoryValue,
     directoryKind,
+    libraryRefreshKey,
     setMediaCategory,
     setDirectoryValue,
     setSearchQuery,
   });
+
+  const handleReloadLibraryFromApi = useCallback(async () => {
+    const station = data?.header?.extra?.station?.trim();
+    if (!station) {
+      setLibraryReloadError(
+        'Playlist sem código da estação (`header.extra.station`). Carregue a playlist do dia para sincronizar o acervo.',
+      );
+      return;
+    }
+    setLibraryReloadError('');
+    resetLibMusicFilters();
+    setSearchQuery('');
+    if (mediaCategory === 'musics' || mediaCategory === 'medias') {
+      setDirectoryValue('0');
+      setDirectoryKind('sync');
+    }
+    setLibraryReloadBusy(true);
+    try {
+      await invoke('update_syncplay_library', { authCode: station });
+      setLibraryRefreshKey((k) => k + 1);
+    } catch (e: unknown) {
+      setLibraryReloadError(String(e));
+    } finally {
+      setLibraryReloadBusy(false);
+    }
+  }, [data?.header?.extra?.station, mediaCategory, resetLibMusicFilters]);
 
   // CUE Player
   const [cueFile, setCueFile] = useState<string | null>(null);
@@ -619,7 +649,7 @@ function App() {
     loadOptions();
 
     return () => { active = false; };
-  }, [mediaCategory]);
+  }, [mediaCategory, libraryRefreshKey]);
 
   useEffect(() => {
     if (mediaCategory === 'unset' || directoryValue === "-1" || !directoryValue) {
@@ -1053,6 +1083,10 @@ function App() {
             directoryValue={directoryValue}
             setDirectoryValue={setDirectoryValue}
             setDirectoryKind={setDirectoryKind}
+            playlistStationCode={data?.header?.extra?.station?.trim()}
+            libraryReloadBusy={libraryReloadBusy}
+            libraryReloadError={libraryReloadError}
+            onReloadLibrary={() => void handleReloadLibraryFromApi()}
             libMusicFilterIds={libMusicFilterIds}
             setLibMusicFilterIds={setLibMusicFilterIds}
             resetLibMusicFilters={resetLibMusicFilters}

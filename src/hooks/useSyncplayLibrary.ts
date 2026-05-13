@@ -98,6 +98,8 @@ export interface UseSyncplayLibraryArgs {
   mediaCategory: MediaCategory;
   directoryValue: string;
   directoryKind: DirectoryOptionKind;
+  /** Incrementar após atualizar JSON em disco (reload manual do acervo). */
+  libraryRefreshKey: number;
   setMediaCategory: React.Dispatch<React.SetStateAction<MediaCategory>>;
   setDirectoryValue: React.Dispatch<React.SetStateAction<string>>;
   setSearchQuery: React.Dispatch<React.SetStateAction<string>>;
@@ -127,6 +129,7 @@ export function useSyncplayLibrary({
   mediaCategory,
   directoryValue,
   directoryKind,
+  libraryRefreshKey,
   setMediaCategory,
   setDirectoryValue,
   setSearchQuery,
@@ -272,7 +275,7 @@ export function useSyncplayLibrary({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [libraryRefreshKey]);
 
   useEffect(() => {
     let cancelled = false;

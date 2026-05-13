@@ -63,6 +63,11 @@ export interface LibraryColumnProps {
   toggleCuePlaybackToolbar: () => void | Promise<void>;
   stopCuePlayer: () => void | Promise<void>;
   handleCueSeek: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  /** Presente quando a playlist expõe `header.extra.station` (sync API acervo). */
+  playlistStationCode?: string;
+  libraryReloadBusy: boolean;
+  libraryReloadError: string;
+  onReloadLibrary: () => void;
 }
 
 export function LibraryColumn({
@@ -103,6 +108,10 @@ export function LibraryColumn({
   toggleCuePlaybackToolbar,
   stopCuePlayer,
   handleCueSeek,
+  playlistStationCode,
+  libraryReloadBusy,
+  libraryReloadError,
+  onReloadLibrary,
 }: LibraryColumnProps) {
   const [libraryTab, setLibraryTab] = useState<LibraryColumnTabId>('acervo');
   const [cueDropHover, setCueDropHover] = useState(false);
@@ -372,6 +381,10 @@ export function LibraryColumn({
           cuePlaying={cuePlaying}
           setCuePlaying={setCuePlaying}
           toggleCue={toggleCue}
+          playlistStationCode={playlistStationCode}
+          libraryReloadBusy={libraryReloadBusy}
+          libraryReloadError={libraryReloadError}
+          onReloadLibrary={onReloadLibrary}
         />
         {libraryTab === 'ia' ? <LibraryIaTab /> : null}
         {libraryTab === 'tocou' ? <LibraryTocouTab /> : null}

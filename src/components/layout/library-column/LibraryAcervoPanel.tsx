@@ -38,6 +38,10 @@ export interface LibraryAcervoPanelProps {
   cuePlaying: boolean;
   setCuePlaying: Dispatch<SetStateAction<boolean>>;
   toggleCue: (file: DirFile) => void | Promise<void>;
+  playlistStationCode?: string;
+  libraryReloadBusy: boolean;
+  libraryReloadError: string;
+  onReloadLibrary: () => void;
 }
 
 export function LibraryAcervoPanel({
@@ -70,6 +74,10 @@ export function LibraryAcervoPanel({
   cuePlaying,
   setCuePlaying,
   toggleCue,
+  playlistStationCode,
+  libraryReloadBusy,
+  libraryReloadError,
+  onReloadLibrary,
 }: LibraryAcervoPanelProps) {
   const [musicFiltersModalOpen, setMusicFiltersModalOpen] = useState(false);
   const [musicFiltersPopoverRect, setMusicFiltersPopoverRect] = useState<{
@@ -217,9 +225,8 @@ export function LibraryAcervoPanel({
             aria-label="Limpar filtros de música e busca"
             title="Limpar filtros de música e busca"
             onClick={() => clearFiltersAndMediaSearch()}
-            className={`shrink-0 rounded p-0.5 outline-none transition-colors hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-neutral-500 ${
-              filtersOrSearchDirty ? 'text-white' : 'text-[#323232]'
-            }`}
+            className={`shrink-0 rounded p-0.5 outline-none transition-colors hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-neutral-500 ${filtersOrSearchDirty ? 'text-white' : 'text-[#323232]'
+              }`}
           >
             <svg
               id="clean-filter"
@@ -248,11 +255,35 @@ export function LibraryAcervoPanel({
           >
             <ArrowDownWideNarrow className="size-6" aria-hidden />
           </button>
-          <svg id="reloadLibrary" xmlns="http://www.w3.org/2000/svg" height="24px"
-            viewBox="0 -960 960 960" width="24px" fill="#e3e3e3" className='shrink-0'>
-            <path
-              d="M186.67-186.67v-586.66 586.66ZM280-613.33h400V-680H280v66.67Zm0 166.66h214q18.61-20.06 40.47-37.19Q556.33-501 581-513.33H280v66.66ZM280-280h135.77q2.23-17.67 6.38-34.28t10.18-32.39H280V-280Zm-93.33 160q-27.5 0-47.09-19.58Q120-159.17 120-186.67v-586.66q0-27.5 19.58-47.09Q159.17-840 186.67-840h586.66q27.5 0 47.09 19.58Q840-800.83 840-773.33v251q-15.67-6.67-32.33-11.84-16.67-5.16-34.34-7.83v-231.33H186.67v586.66H418q2.67 17.67 7.83 34.34Q431-135.67 437.67-120h-251ZM720-40q-73 0-127.5-45.5T524-200h62q13 44 49.5 72t84.5 28q58 0 99-41t41-99q0-58-41-99t-99-41q-29 0-54 10.5T622-340h58v60H520v-160h60v57q27-26 63-41.5t77-15.5q83 0 141.5 58.5T920-240q0 83-58.5 141.5T720-40Z" />
-          </svg>
+          <button
+            type="button"
+            aria-label={
+              playlistStationCode
+                ? 'Recarregar biblioteca desde a API Superaudio'
+                : 'Recarregar biblioteca (indisponível sem código da estação na playlist)'
+            }
+            title={
+              playlistStationCode
+                ? 'Recarregar biblioteca desde a API (sincronizar acervo)'
+                : 'É necessário o campo header.extra.station na playlist.'
+            }
+            disabled={libraryReloadBusy || !playlistStationCode}
+            id="reloadLibrary"
+            onClick={() => onReloadLibrary()}
+            className="shrink-0 rounded p-0.5 text-[#e3e3e3] outline-none transition-colors enabled:hover:bg-white/10 enabled:focus-visible:ring-2 enabled:focus-visible:ring-neutral-500 disabled:opacity-35 disabled:cursor-not-allowed"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              height="24px"
+              viewBox="0 -960 960 960"
+              width="24px"
+              fill="currentColor"
+              className="pointer-events-none"
+              aria-hidden
+            >
+              <path d="M186.67-186.67v-586.66 586.66ZM280-613.33h400V-680H280v66.67Zm0 166.66h214q18.61-20.06 40.47-37.19Q556.33-501 581-513.33H280v66.66ZM280-280h135.77q2.23-17.67 6.38-34.28t10.18-32.39H280V-280Zm-93.33 160q-27.5 0-47.09-19.58Q120-159.17 120-186.67v-586.66q0-27.5 19.58-47.09Q159.17-840 186.67-840h586.66q27.5 0 47.09 19.58Q840-800.83 840-773.33v251q-15.67-6.67-32.33-11.84-16.67-5.16-34.34-7.83v-231.33H186.67v586.66H418q2.67 17.67 7.83 34.34Q431-135.67 437.67-120h-251ZM720-40q-73 0-127.5-45.5T524-200h62q13 44 49.5 72t84.5 28q58 0 99-41t41-99q0-58-41-99t-99-41q-29 0-54 10.5T622-340h58v60H520v-160h60v57q27-26 63-41.5t77-15.5q83 0 141.5 58.5T920-240q0 83-58.5 141.5T720-40Z" />
+            </svg>
+          </button>
         </div>
       </div>
 
@@ -289,7 +320,7 @@ export function LibraryAcervoPanel({
               </button>
             </div>
             <div className="flex flex-col gap-2">
-              <div className="flex flex-wrap gap-2 items-center">
+              <div className="flex flex-wrap gap-2 items-center justify-between w-full flex-row">
                 <select
                   className="min-w-[120px] flex-1 bg-white/5 border border-[#353535] rounded-lg px-2 py-1.5 text-white/90 text-[0.72rem] outline-none focus:border-neutral-500 [&>option]:bg-[#262626]"
                   value={libMusicFilterIds.categoryId}
@@ -347,12 +378,12 @@ export function LibraryAcervoPanel({
                   ))}
                 </select>
               </div>
-              <div className="flex flex-wrap gap-2 items-center">
+              <div className="flex gap-2 items-center justify-between w-full flex-row">
                 <input
                   type="text"
                   inputMode="numeric"
                   placeholder={libraryYearDecade ? 'Ano min (década)' : 'Ano min'}
-                  className="w-28 bg-white/5 border border-[#353535] rounded-lg px-2 py-1.5 text-white/90 text-[0.72rem] outline-none focus:border-neutral-500"
+                  className="flex-1 bg-white/5 border border-[#353535] rounded-lg px-2 py-1.5 text-white/90 text-[0.72rem] outline-none focus:border-neutral-500"
                   value={libMusicFilterIds.yearMin}
                   onChange={(e) =>
                     setLibMusicFilterIds((prev) => ({ ...prev, yearMin: e.target.value }))
@@ -362,7 +393,7 @@ export function LibraryAcervoPanel({
                   type="text"
                   inputMode="numeric"
                   placeholder={libraryYearDecade ? 'Ano máx' : 'Ano máx'}
-                  className="w-28 bg-white/5 border border-[#353535] rounded-lg px-2 py-1.5 text-white/90 text-[0.72rem] outline-none focus:border-neutral-500"
+                  className="flex-1 bg-white/5 border border-[#353535] rounded-lg px-2 py-1.5 text-white/90 text-[0.72rem] outline-none focus:border-neutral-500"
                   value={libMusicFilterIds.yearMax}
                   onChange={(e) =>
                     setLibMusicFilterIds((prev) => ({ ...prev, yearMax: e.target.value }))
@@ -375,26 +406,36 @@ export function LibraryAcervoPanel({
         )}
 
       <div className="flex-1 overflow-hidden flex flex-col relative min-h-0">
-        {dirError && (
+        {(dirError || libraryReloadError) && (
           <div className="m-3 px-3 py-2 bg-red-500/12 border border-red-500/30 rounded-lg text-red-300 text-[0.82rem]">
-            ⚠️ {dirError}
+            ⚠️ {libraryReloadError || dirError}
           </div>
         )}
-        {!dirLoading && dirFiles.length === 0 && !dirError && (
-          <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-400 text-[0.88rem] text-center p-8">
-            <span className="text-[2.5rem] opacity-50" aria-hidden>
-              🎵
-            </span>
-            <p>Selecione uma pasta e carregue os arquivos (🔍 acima).</p>
+        {!dirLoading &&
+          !libraryReloadBusy &&
+          dirFiles.length === 0 &&
+          !dirError &&
+          !libraryReloadError && (
+            <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-400 text-[0.88rem] text-center p-8">
+              <span className="text-[2.5rem] opacity-50" aria-hidden>
+                🎵
+              </span>
+              <p>Selecione uma pasta e carregue os arquivos (🔍 acima).</p>
+            </div>
+          )}
+        {libraryReloadBusy && (
+          <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-400 text-[0.88rem]">
+            <div className="w-8 h-8 border-3 border-[#353535] border-t-neutral-400 rounded-full animate-spin-custom" />
+            <p>Sincronizando biblioteca com a API…</p>
           </div>
         )}
-        {dirLoading && (
+        {dirLoading && !libraryReloadBusy && (
           <div className="flex-1 flex flex-col items-center justify-center gap-3 text-slate-400 text-[0.88rem]">
             <div className="w-8 h-8 border-3 border-[#353535] border-t-neutral-400 rounded-full animate-spin-custom" />
             <p>Lendo diretório...</p>
           </div>
         )}
-        {!dirLoading && filteredFiles.length > 0 && (
+        {!dirLoading && !libraryReloadBusy && filteredFiles.length > 0 && (
           <div className="list flex-1 overflow-y-auto relative" ref={parentRef}>
             <div
               style={{

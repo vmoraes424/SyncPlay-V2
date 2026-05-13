@@ -147,6 +147,7 @@ pub fn run() {
             commands::settings::write_app_settings,
             commands::settings::list_directories,
             commands::weather::fetch_weather_current,
+            commands::library_sync::update_syncplay_library,
             commands::playlist_watch::watch_playlist_file,
             commands::playlist_watch::stop_playlist_watch,
             // Audio playback
