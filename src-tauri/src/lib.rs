@@ -159,6 +159,8 @@ pub fn run() {
             commands::audio::pause_audio,
             commands::audio::resume_audio,
             commands::audio::seek_audio,
+            commands::audio::seek_with_fade,
+            commands::audio::play_index_seek_fade,
             commands::audio::skip_with_fade,
             commands::audio::play_independent,
             commands::audio::stop_independent,

@@ -2,9 +2,11 @@ import type { Music, MediaCategory } from '../types';
 import type { LibMusicFiltersState } from '../hooks/useSyncplayLibrary';
 
 import { formatTimeRemaining } from '../time';
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import proximaBcoImg from '../assets/proxima_bco.png';
 import lixeiraImg from '../assets/lixeira.png';
+import refraoPlayGif from '../assets/refraoPlay.gif';
+import playRPiscanteGif from '../assets/playRPiscante.gif';
 import { invoke } from '@tauri-apps/api/core';
 import { useSyncplayLibraryMaps } from '../library/SyncplayLibraryContext';
 import {
@@ -110,6 +112,30 @@ function formatMixLabel(seconds: number) {
   return `Mix ${t}`;
 }
 
+function parseWaveformSec(raw: string | undefined): number | null {
+  if (raw == null || String(raw).trim() === '') return null;
+  const n = parseFloat(String(raw).replace(',', '.'));
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+/** Início do refrão em ms quando `chorus_init` e `chorus_end` existem no waveform. */
+export function getChorusSeekMs(music: Music): number | null {
+  const w = music.extra?.mix?.waveform_content;
+  if (!w) return null;
+  const start = parseWaveformSec(w.chorus_init);
+  const end = parseWaveformSec(w.chorus_end);
+  if (start == null || end == null) return null;
+  return Math.round(start * 1000);
+}
+
+/** Intro marcada no waveform (`intro` em segundos): salta para o início da faixa (tocar desde o início da intro). */
+export function getIntroSeekMs(music: Music): number | null {
+  const w = music.extra?.mix?.waveform_content;
+  if (!w) return null;
+  if (parseWaveformSec(w.intro) == null) return null;
+  return 0;
+}
+
 function parseYear(raw: string | number | undefined): number | null {
   if (raw == null || raw === '') return null;
   const n = typeof raw === 'number' ? raw : parseInt(String(raw).replace(/\D/g, ''), 10);
@@ -190,6 +216,10 @@ interface PlaylistMusicItemProps {
   onTrashRemove?: () => void;
   /** Próxima faixa na fila após esta linha (fade); ícone na lista — diferente do skip global (faixa atual). */
   onSkipNextFromRow?: () => void;
+  /** Crossfade para esta linha na fila começando em `positionMs` (refrão); pode ser clicada mesmo com outra faixa a tocar. */
+  onChorusSeekTo?: (positionMs: number) => void | Promise<void>;
+  /** Crossfade para esta linha no início da intro (`positionMs` usualmente 0). */
+  onIntroSeekTo?: (positionMs: number) => void | Promise<void>;
   filterVisibility: PlaylistFilterVisibility;
   libraryYearDecade: boolean;
   showMusicFileName: boolean;
@@ -229,6 +259,8 @@ export function PlaylistMusicItem({
   playlistSidebarFilterHighlight,
   onPlaylistFilterClick,
   overrideMixEndMs,
+  onChorusSeekTo,
+  onIntroSeekTo,
 }: PlaylistMusicItemProps) {
   const { musicLibrary, musicFilters, mediaLibrary, mediaFilters } = useSyncplayLibraryMaps();
 
@@ -241,6 +273,29 @@ export function PlaylistMusicItem({
 
   const trashHighlighted =
     Boolean(showTrashSkipIcon && !isVisuallyPlaying && !isDisabled);
+
+  const chorusSeekMs = getChorusSeekMs(music);
+  const hasChorusControl = chorusSeekMs != null;
+  const introSeekMs = getIntroSeekMs(music);
+  const hasIntroControl = introSeekMs != null;
+  const [refrainUi, setRefrainUi] = useState<'idle' | 'playing' | 'flash'>('idle');
+  const refrainFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevVisuallyPlayingRef = useRef(isVisuallyPlaying);
+
+  useEffect(() => {
+    if (prevVisuallyPlayingRef.current && !isVisuallyPlaying) {
+      setRefrainUi('idle');
+    }
+    prevVisuallyPlayingRef.current = isVisuallyPlaying;
+  }, [isVisuallyPlaying]);
+
+  useEffect(() => {
+    return () => {
+      if (refrainFlashTimerRef.current != null) {
+        clearTimeout(refrainFlashTimerRef.current);
+      }
+    };
+  }, []);
 
   const itemBg = TYPE_BG[music.type ?? ''];
   const itemBorderColor = TYPE_BORDER[music.type ?? ''];
@@ -437,6 +492,56 @@ export function PlaylistMusicItem({
   const showExtraBlock =
     !isDisabled && (hasMusicChips || hasCollections || (showFn && fileLabel) || extraPlain || hasMediaChips);
 
+  function handleSkipZoneClick(ev: React.MouseEvent) {
+    ev.stopPropagation();
+    if (trashHighlighted && onTrashRemove) {
+      onTrashRemove();
+      return;
+    }
+    if (hasChorusControl && chorusSeekMs != null) {
+      if (isDisabled) return;
+      if (refrainUi === 'idle') {
+        setRefrainUi('playing');
+        const p =
+          onChorusSeekTo != null
+            ? Promise.resolve(onChorusSeekTo(chorusSeekMs))
+            : invoke('seek_with_fade', { positionMs: chorusSeekMs });
+        void p.catch((e) => {
+          console.error(e);
+          setRefrainUi('idle');
+        });
+        return;
+      }
+      if (refrainUi === 'playing') {
+        if (refrainFlashTimerRef.current != null) clearTimeout(refrainFlashTimerRef.current);
+        setRefrainUi('flash');
+        refrainFlashTimerRef.current = setTimeout(() => {
+          setRefrainUi('idle');
+          refrainFlashTimerRef.current = null;
+        }, 3000);
+        return;
+      }
+      return;
+    }
+    if (onSkipNextFromRow) {
+      onSkipNextFromRow();
+      return;
+    }
+    invoke('skip_with_fade').catch(console.error);
+  }
+
+  function handleIntroClick(ev: React.MouseEvent) {
+    ev.stopPropagation();
+    if (isDisabled || introSeekMs == null) return;
+    if (onIntroSeekTo == null) return;
+    void Promise.resolve(onIntroSeekTo(introSeekMs)).catch(console.error);
+  }
+
+  const skipIconWrapClass = [
+    'w-10 h-10 shrink-0 flex items-center justify-center',
+    trashHighlighted ? 'cursor-pointer' : isDisabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
+  ].join(' ');
+
   return (
     <div
       className={itemClass}
@@ -449,42 +554,66 @@ export function PlaylistMusicItem({
       }
     >
       <div className="flex flex-row gap-3 items-center w-full min-w-0">
-        <div className="relative w-[100px] h-[100px] shrink-0 rounded-xl overflow-hidden bg-white/5">
-          <img
-            src={coverSrc}
-            alt=""
-            className="absolute inset-0 w-full h-full object-cover"
-            onError={(e) => {
-              const el = e.currentTarget;
-              if (el.dataset.coverFallback === '1') return;
-              el.dataset.coverFallback = '1';
-              el.src = fallbackCoverSrc;
-            }}
-          />
-          {music.path ? (
+        <div className="flex flex-row gap-1 items-stretch shrink-0">
+          <div className="relative w-[100px] h-[100px] shrink-0 rounded-xl overflow-hidden bg-white/5">
+            <img
+              src={coverSrc}
+              alt=""
+              className="absolute inset-0 w-full h-full object-cover"
+              onError={(e) => {
+                const el = e.currentTarget;
+                if (el.dataset.coverFallback === '1') return;
+                el.dataset.coverFallback = '1';
+                el.src = fallbackCoverSrc;
+              }}
+            />
+            {music.path ? (
+              <button
+                className={[
+                  'absolute inset-0 w-full h-full flex items-center justify-center text-white p-0 text-[1rem] transition-all duration-75',
+                  isDisabled
+                    ? 'text-slate-500 cursor-not-allowed bg-black/30'
+                    : isVisuallyPlaying && isPlaying
+                      ? 'bg-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.4)] animate-pulse-btn'
+                      : 'bg-black/30 hover:bg-[#353535]/90 hover:shadow-[0_0_10px_rgba(0,0,0,0.35)]',
+                ].join(' ')}
+                onClick={onPlay}
+                onPointerDown={(ev) => ev.stopPropagation()}
+                disabled={isDisabled}
+                title={
+                  isDisabled ? 'Mídia descartada/desabilitada' : isVisuallyPlaying && isPlaying ? 'Pausar' : 'Tocar'
+                }
+              >
+                <span className="drop-shadow-[0_1px_4px_rgba(0,0,0,0.8)] text-xl">
+                  {isVisuallyPlaying && isPlaying ? '⏸' : '▶'}
+                </span>
+              </button>
+            ) : null}
+          </div>
+          {hasIntroControl ? (
             <button
-              className={[
-                'absolute inset-0 w-full h-full flex items-center justify-center text-white p-0 text-[1rem] transition-all duration-75',
+              type="button"
+              data-skip-trash-zone
+              title={
                 isDisabled
-                  ? 'text-slate-500 cursor-not-allowed bg-black/30'
-                  : isVisuallyPlaying && isPlaying
-                    ? 'bg-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.4)] animate-pulse-btn'
-                    : 'bg-black/30 hover:bg-[#353535]/90 hover:shadow-[0_0_10px_rgba(0,0,0,0.35)]',
-              ].join(' ')}
-              onClick={onPlay}
+                  ? 'Mídia descartada/desabilitada'
+                  : 'Intro: ir a esta faixa desde o início (intro) com crossfade'
+              }
+              onClick={handleIntroClick}
               onPointerDown={(ev) => ev.stopPropagation()}
               disabled={isDisabled}
-              title={
-                isDisabled ? 'Mídia descartada/desabilitada' : isVisuallyPlaying && isPlaying ? 'Pausar' : 'Tocar'
-              }
+              className={[
+                'flex items-center justify-center w-4 shrink-0',
+                'hover:bg-white/8 transition-colors',
+                isDisabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
+              ].join(' ')}
             >
-              <span className="drop-shadow-[0_1px_4px_rgba(0,0,0,0.8)] text-xl">
-                {isVisuallyPlaying && isPlaying ? '⏸' : '▶'}
+              <span className="rotate-270 select-none text-[10px] font-bold uppercase tracking-wide text-emerald-400/95 whitespace-nowrap leading-none">
+                intro
               </span>
             </button>
           ) : null}
         </div>
-
         <div className="flex flex-col w-full min-w-0 gap-1 flex-1 justify-between">
           <div className="flex flex-col gap-1 min-w-0">
             {artist ? (
@@ -750,25 +879,55 @@ export function PlaylistMusicItem({
           <span className="text-md text-white font-black">
             {formatTimeRemaining(remainingSec)}
           </span>
-          <img
-            src={trashHighlighted ? lixeiraImg : proximaBcoImg}
-            alt=""
+          <div
+            className={skipIconWrapClass}
             data-skip-trash-zone
+            title={
+              hasChorusControl && !trashHighlighted
+                ? isDisabled
+                  ? 'Mídia descartada/desabilitada'
+                  : 'Refrão: ir a esta faixa no refrão com crossfade (mesmo que outra esteja a tocar). Toque de novo para sair do modo.'
+                : undefined
+            }
             onPointerDown={(ev) => ev.stopPropagation()}
-            onClick={(ev) => {
-              ev.stopPropagation();
-              if (trashHighlighted && onTrashRemove) {
-                onTrashRemove();
-                return;
-              }
-              if (onSkipNextFromRow) {
-                onSkipNextFromRow();
-                return;
-              }
-              invoke("skip_with_fade").catch(console.error);
-            }}
-            className="w-10 h-10 rotate-90 cursor-pointer"
-          />
+            onClick={handleSkipZoneClick}
+          >
+            {trashHighlighted ? (
+              <img src={lixeiraImg} alt="" className="w-full h-full object-contain pointer-events-none" />
+            ) : hasChorusControl ? (
+              refrainUi === 'playing' ? (
+                <img src={refraoPlayGif} alt="" className="w-full h-full object-contain pointer-events-none" />
+              ) : refrainUi === 'flash' ? (
+                <img src={playRPiscanteGif} alt="" className="w-full h-full object-contain pointer-events-none" />
+              ) : (
+                <svg
+                  className="mix-point-chorus w-full h-full object-contain pointer-events-none"
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 512 512"
+                  aria-hidden
+                >
+                  <defs>
+                    <style>{`.mix-point-chorus .cls-12{fill:none;stroke:#43a035;stroke-width:15px}.mix-point-chorus .cls-2{fill:#43a035}.mix-point-chorus .cls-2,.mix-point-chorus .cls-3{fill-rule:evenodd}`}</style>
+                  </defs>
+                  <circle className="cls-12" cx="255.75" cy="255.75" r="245.844" />
+                  <path
+                    className="cls-2"
+                    d="M409.453,249.348a5,5,0,0,1,0,8.3L186.807,406.99a5,5,0,0,1-7.785-4.152V104.162a5,5,0,0,1,7.785-4.152Z"
+                  />
+                  <path
+                    className="cls-3"
+                    d="M240.306,214.7h7.542q12.034,0,17.771,3.529t5.736,11.869q0,8.421-5.616,12.351t-17.41,3.93h-8.023V214.7Zm13.238,51.889,28,44.991h27.6q-8.023-11.549-34.5-51.086a37.7,37.7,0,0,0,16.126-12.632,31.1,31.1,0,0,0,5.7-18.4q0-17.724-11.473-26.426t-35.381-8.7H215.435V311.583h24.871V266.592h13.238Z"
+                  />
+                </svg>
+              )
+            ) : (
+              <img
+                src={proximaBcoImg}
+                alt=""
+                className="w-full h-full object-contain rotate-90 pointer-events-none"
+              />
+            )}
+          </div>
           <div className='flex gap-3 mt-1'>
             {mixLabel && (
               <span

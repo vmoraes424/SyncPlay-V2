@@ -15,8 +15,13 @@ use crate::models::audio::{AudioCommand, AudioItem, PlaybackState};
 
 const PREBUFFER_SECONDS: usize = 1;
 
+static NEXT_MIXER_TRACK_ID: AtomicU64 = AtomicU64::new(1);
+
 struct TrackEntry {
+    /// ID lógico da playlist (ex.: `plKey-blockKey-musicKey`); coincide com `AudioItem.id` e com a UI.
     id: String,
+    /// ID único da instância no mixer (evita colisão ao sobrepor duas decodificações da mesma faixa).
+    mixer_id: String,
     index: usize,
     decoder: TrackDecoder,
     position_samples: Arc<AtomicU64>,
@@ -164,7 +169,7 @@ fn engine_loop(
 
             if remove {
                 let _ = t.decoder.cmd_tx.send(DecoderCmd::Stop);
-                let _ = mixer_tx.send(MixerCommand::RemoveTrack(t.id.clone()));
+                let _ = mixer_tx.send(MixerCommand::RemoveTrack(t.mixer_id.clone()));
                 false // remove
             } else {
                 true // keep
@@ -241,6 +246,34 @@ fn skip_with_fade_to_target_index(
     }
 }
 
+/// Seek inicial na faixa recém-aberta e alinha `PlaybackState.position_ms` (após `update_playback_started`).
+fn entry_seek_to_ms(
+    entry: TrackEntry,
+    item_id: &str,
+    position_ms: u64,
+    playback: &Arc<Mutex<PlaybackState>>,
+    sr: u32,
+    ch: u16,
+) -> TrackEntry {
+    let dur = entry.duration_ms;
+    let seek_ms = if dur > 0 {
+        position_ms.min(dur.saturating_sub(1))
+    } else {
+        position_ms
+    };
+    let _ = entry.decoder.cmd_tx.send(DecoderCmd::Seek(seek_ms));
+    entry
+        .position_samples
+        .store(ms_to_samples(seek_ms, sr, ch), Ordering::Release);
+    entry.seek_flush_pending.store(true, Ordering::Release);
+    store_volume(&entry.volume, 1.0);
+    update_playback_started(&entry, item_id, playback);
+    if let Ok(mut s) = playback.lock() {
+        s.position_ms = seek_ms;
+    }
+    entry
+}
+
 #[allow(clippy::too_many_arguments)]
 fn handle_command(
     cmd: AudioCommand,
@@ -292,30 +325,30 @@ fn handle_command(
         AudioCommand::Pause => {
             if let Some(c) = current.as_ref() {
                 c.active.store(false, Ordering::Release);
-                let _ = mixer_tx.send(MixerCommand::SetTrackState { id: c.id.clone(), playing: false });
+                let _ = mixer_tx.send(MixerCommand::SetTrackState { id: c.mixer_id.clone(), playing: false });
             }
             for t in finishing.iter() {
                 t.active.store(false, Ordering::Release);
-                let _ = mixer_tx.send(MixerCommand::SetTrackState { id: t.id.clone(), playing: false });
+                let _ = mixer_tx.send(MixerCommand::SetTrackState { id: t.mixer_id.clone(), playing: false });
             }
             for t in independent.iter() {
                 t.active.store(false, Ordering::Release);
-                let _ = mixer_tx.send(MixerCommand::SetTrackState { id: t.id.clone(), playing: false });
+                let _ = mixer_tx.send(MixerCommand::SetTrackState { id: t.mixer_id.clone(), playing: false });
             }
             if let Ok(mut s) = playback.lock() { s.is_playing = false; }
         }
         AudioCommand::Resume => {
             if let Some(c) = current.as_ref() {
                 c.active.store(true, Ordering::Release);
-                let _ = mixer_tx.send(MixerCommand::SetTrackState { id: c.id.clone(), playing: true });
+                let _ = mixer_tx.send(MixerCommand::SetTrackState { id: c.mixer_id.clone(), playing: true });
             }
             for t in finishing.iter() {
                 t.active.store(true, Ordering::Release);
-                let _ = mixer_tx.send(MixerCommand::SetTrackState { id: t.id.clone(), playing: true });
+                let _ = mixer_tx.send(MixerCommand::SetTrackState { id: t.mixer_id.clone(), playing: true });
             }
             for t in independent.iter() {
                 t.active.store(true, Ordering::Release);
-                let _ = mixer_tx.send(MixerCommand::SetTrackState { id: t.id.clone(), playing: true });
+                let _ = mixer_tx.send(MixerCommand::SetTrackState { id: t.mixer_id.clone(), playing: true });
             }
             if let Ok(mut s) = playback.lock() { s.is_playing = true; }
         }
@@ -345,6 +378,74 @@ fn handle_command(
                 sr,
                 ch,
             );
+        }
+        AudioCommand::SeekWithFade(position_ms) => {
+            for t in finishing.drain(..) {
+                stop_entry(Some(t), mixer_tx);
+            }
+
+            let Some((idx, fade_ms)) = current.as_ref().map(|c| (c.index, c.manual_fade_out_ms)) else {
+                return;
+            };
+
+            let Some(item) = queue.get(idx).cloned() else {
+                return;
+            };
+
+            if let Some(mut c) = current.take() {
+                if fade_ms > 0 {
+                    c.fade_out_start_pos_ms = Some(track_pos_ms(&c, sr, ch));
+                    c.fade_out_duration_ms = Some(fade_ms);
+                }
+                finishing.push(c);
+            }
+
+            if let Some(entry) = make_track_entry(&item, idx, 1.0, mixer_tx, shared_routing, sr, ch) {
+                let entry = entry_seek_to_ms(entry, &item.id, position_ms, playback, sr, ch);
+                *current = Some(entry);
+            }
+        }
+        AudioCommand::PlayIndexWithSeekFade { index, position_ms } => {
+            for t in finishing.drain(..) {
+                stop_entry(Some(t), mixer_tx);
+            }
+            if index >= queue.len() {
+                skip_with_fade_to_target_index(
+                    None,
+                    queue,
+                    current,
+                    finishing,
+                    mixer_tx,
+                    playback,
+                    shared_routing,
+                    sr,
+                    ch,
+                );
+                return;
+            }
+
+            let Some(item) = queue.get(index).cloned() else {
+                return;
+            };
+
+            let fade_ms = current
+                .as_ref()
+                .map(|c| c.manual_fade_out_ms)
+                .unwrap_or(1500);
+            if let Some(mut c) = current.take() {
+                if fade_ms > 0 {
+                    c.fade_out_start_pos_ms = Some(track_pos_ms(&c, sr, ch));
+                    c.fade_out_duration_ms = Some(fade_ms);
+                }
+                finishing.push(c);
+            }
+
+            if let Some(entry) = make_track_entry(&item, index, 1.0, mixer_tx, shared_routing, sr, ch) {
+                let entry = entry_seek_to_ms(entry, &item.id, position_ms, playback, sr, ch);
+                *current = Some(entry);
+            } else {
+                clear_playback(playback);
+            }
         }
         AudioCommand::PlayIndependent(item) => {
             if let Some(entry) = make_track_entry(&item, 0, 1.0, mixer_tx, shared_routing, sr, ch) {
@@ -425,7 +526,7 @@ fn process_transitions(
     if cur_finished {
         let next_idx = cur_idx + 1;
         if let Some(old) = current.take() {
-            let _ = mixer_tx.send(MixerCommand::RemoveTrack(old.id.clone()));
+            let _ = mixer_tx.send(MixerCommand::RemoveTrack(old.mixer_id.clone()));
         }
 
         if let Some(next_item) = queue.get(next_idx).cloned() {
@@ -462,6 +563,11 @@ fn make_track_entry(
     let volume = Arc::new(AtomicU32::new(initial_volume.to_bits()));
     let active = Arc::new(AtomicBool::new(true));
 
+    let mixer_id = format!(
+        "m{}",
+        NEXT_MIXER_TRACK_ID.fetch_add(1, Ordering::Relaxed)
+    );
+
     let channel_id = item.mixer_bus.clone().unwrap_or_else(|| {
         let media_type = item.media_type.as_deref().unwrap_or("");
         if media_type.eq_ignore_ascii_case("vem") {
@@ -492,7 +598,7 @@ fn make_track_entry(
     }
 
     let track = AudioTrack {
-        id: item.id.clone(),
+        id: mixer_id.clone(),
         channel_id,
         consumer: cons,
         volume: volume.clone(),
@@ -511,6 +617,7 @@ fn make_track_entry(
 
     Some(TrackEntry {
         id: item.id.clone(),
+        mixer_id,
         index,
         decoder, // O decoder é movido aqui
         position_samples,
@@ -530,7 +637,7 @@ fn make_track_entry(
 fn stop_entry(entry: Option<TrackEntry>, mixer_tx: &Sender<MixerCommand>) {
     if let Some(e) = entry {
         let _ = e.decoder.cmd_tx.send(DecoderCmd::Stop);
-        let _ = mixer_tx.send(MixerCommand::RemoveTrack(e.id.clone()));
+        let _ = mixer_tx.send(MixerCommand::RemoveTrack(e.mixer_id.clone()));
     }
 }
 

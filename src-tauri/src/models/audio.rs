@@ -55,6 +55,10 @@ pub enum AudioCommand {
     Pause,
     Resume,
     Seek(u64),
+    /// Mesma faixa da fila: faz fade-out do trecho atual e inicia nova decodificação a partir de `position_ms` com sobreposição (crossfade).
+    SeekWithFade(u64),
+    /// Salta para `index` na fila com crossfade e início em `position_ms` (ex.: refrão de outra faixa).
+    PlayIndexWithSeekFade { index: usize, position_ms: u64 },
     SkipWithFade,
     /// Toca um áudio de forma independente da playlist principal (ex: CUE/Preview, Soundpad)
     PlayIndependent(AudioItem),

@@ -13,7 +13,7 @@ import { invoke } from '@tauri-apps/api/core';
 import vuMasterMuted from '../../assets/vus/master-off.png';
 import vuMaster from '../../assets/vus/master.png';
 import { BlockHeader } from '../BlockHeader';
-import { PlaylistMusicItem, type PlaylistFilterClickPayload, type PlaylistFilterVisibility } from '../PlaylistMusicItem';
+import { PlaylistMusicItem, getChorusSeekMs, getIntroSeekMs, type PlaylistFilterClickPayload, type PlaylistFilterVisibility } from '../PlaylistMusicItem';
 import { MusicInfo } from '../playlist/MusicInfo';
 import { PlaylistCurrentBlock } from '../playlist/PlaylistCurrentBlock';
 import { PlaylistLoadMoreControls } from '../playlist/PlaylistLoadMoreControls';
@@ -456,6 +456,32 @@ export function PlaylistColumn({
                                                   );
                                                 });
                                               }
+                                              : undefined
+                                          }
+                                          onIntroSeekTo={
+                                            getIntroSeekMs(music) != null
+                                              ? (positionMs) => {
+                                                  const q = playableItemsRef.current;
+                                                  const idx = q.findIndex((i) => i.id === uniqueId);
+                                                  if (idx === -1) return;
+                                                  void invoke('play_index_seek_fade', {
+                                                    index: idx,
+                                                    positionMs,
+                                                  }).catch(console.error);
+                                                }
+                                              : undefined
+                                          }
+                                          onChorusSeekTo={
+                                            getChorusSeekMs(music) != null
+                                              ? (positionMs) => {
+                                                  const q = playableItemsRef.current;
+                                                  const idx = q.findIndex((i) => i.id === uniqueId);
+                                                  if (idx === -1) return;
+                                                  void invoke('play_index_seek_fade', {
+                                                    index: idx,
+                                                    positionMs,
+                                                  }).catch(console.error);
+                                                }
                                               : undefined
                                           }
                                           onSkipNextFromRow={() => {

@@ -15,12 +15,22 @@ export interface DirFile {
   size_bytes: number;
 }
 
+/** Tempos de marcadores no waveform (SyncPlay), em segundos como string. */
+export interface WaveformContent {
+  intro?: string;
+  mix_init?: string;
+  mix_end?: string;
+  chorus_init?: string;
+  chorus_end?: string;
+}
+
 export interface MixData {
   mix_init?: number;
   mix_end?: number;
   duration_real?: number;
   duration_total?: number;
   mix_total_milesecond?: number;
+  waveform_content?: WaveformContent;
 }
 
 /** Estrutura do arquivo C:/SyncPlay/Configs/mix.json */
