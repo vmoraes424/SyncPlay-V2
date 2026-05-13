@@ -9,6 +9,8 @@ import vuOnAirOff from "../../assets/vus/volume-onair-off.png";
 import vuOnAir from "../../assets/vus/volume-onair.png";
 import vuCueMuted from "../../assets/vus/volume-cue-off.png";
 import vuCue from "../../assets/vus/volume-cue.png";
+import vuIntroChorus from "../../assets/vus/volume-introChorus.png";
+import vuIntroChorusOff from "../../assets/vus/volume-introChorus-off.png";
 import {
   ChannelGain,
   ChannelRouting,
@@ -22,6 +24,7 @@ const FALLBACK_MUTE = { on: vuLine, off: vuLineMuted };
 /** Ícones só do botão mute (thumb do fader é sempre volume-thumb). */
 const CHANNEL_MUTE_ICONS: Partial<Record<ChannelId, { on: string; off: string }>> = {
   playlist: { on: vuOnAir, off: vuOnAirOff },
+  intro_chorus: { on: vuIntroChorus, off: vuIntroChorusOff },
   vem: { on: vem, off: vemMute },
   mic: { on: vuMic, off: vuMicMuted },
   linein: { on: vuLine, off: vuLineMuted },
@@ -30,6 +33,7 @@ const CHANNEL_MUTE_ICONS: Partial<Record<ChannelId, { on: string; off: string }>
 
 const CHANNEL_LABELS: Record<string, string> = {
   playlist: "Playlist",
+  intro_chorus: "REFRÃO",
   vem: "V.E.M.",
   mic: "Mic",
   linein: "Line In",
@@ -38,6 +42,7 @@ const CHANNEL_LABELS: Record<string, string> = {
 
 const CHANNEL_COLORS: Record<string, string> = {
   playlist: "#4caf50",
+  intro_chorus: "#43a035",
   vem: "#ff9800",
   mic: "#f44336",
   linein: "#2196f3",
@@ -86,9 +91,13 @@ export function ChannelStrip({
       ? gain.muted
         ? "Fora do ar"
         : "On Air"
-      : gain.muted
-        ? "Unmute"
-        : "Mute";
+      : channelId === "intro_chorus"
+        ? gain.muted
+          ? "Unmute refrão / intro"
+          : "Mute refrão / intro"
+        : gain.muted
+          ? "Unmute"
+          : "Mute";
 
   const handleMuteToggle = useCallback(() => {
     onSetMuted(!gain.muted);

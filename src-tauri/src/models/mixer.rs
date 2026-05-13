@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 /// Canais de entrada do mixer (fontes de áudio)
 pub const CHANNEL_PLAYLIST: &str = "playlist";
+pub const CHANNEL_INTRO_CHORUS: &str = "intro_chorus";
 pub const CHANNEL_VEM: &str = "vem";
 pub const CHANNEL_MIC: &str = "mic";
 pub const CHANNEL_LINEIN: &str = "linein";
@@ -18,6 +19,7 @@ pub const BUS_FONE: &str = "fone";
 /// IDs de canal conhecidos (novos canais = nova entrada aqui + UI).
 pub const DEFAULT_MIXER_CHANNELS: &[&str] = &[
     CHANNEL_PLAYLIST,
+    CHANNEL_INTRO_CHORUS,
     CHANNEL_VEM,
     CHANNEL_MIC,
     CHANNEL_LINEIN,
@@ -105,6 +107,7 @@ impl Default for MixerRouting {
     fn default() -> Self {
         let channels = [
             CHANNEL_PLAYLIST,
+            CHANNEL_INTRO_CHORUS,
             CHANNEL_VEM,
             CHANNEL_MIC,
             CHANNEL_LINEIN,

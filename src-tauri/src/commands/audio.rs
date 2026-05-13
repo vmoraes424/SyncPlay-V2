@@ -34,13 +34,29 @@ pub fn skip_with_fade(state: State<'_, AppState>) -> AppResult<()> {
 }
 
 #[tauri::command]
-pub fn seek_with_fade(position_ms: u64, state: State<'_, AppState>) -> AppResult<()> {
-    state.send_audio_command(AudioCommand::SeekWithFade(position_ms))
+pub fn seek_with_fade(
+    position_ms: u64,
+    mixer_bus: Option<String>,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    state.send_audio_command(AudioCommand::SeekWithFade {
+        position_ms,
+        mixer_bus,
+    })
 }
 
 #[tauri::command]
-pub fn play_index_seek_fade(index: usize, position_ms: u64, state: State<'_, AppState>) -> AppResult<()> {
-    state.send_audio_command(AudioCommand::PlayIndexWithSeekFade { index, position_ms })
+pub fn play_index_seek_fade(
+    index: usize,
+    position_ms: u64,
+    mixer_bus: Option<String>,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
+    state.send_audio_command(AudioCommand::PlayIndexWithSeekFade {
+        index,
+        position_ms,
+        mixer_bus,
+    })
 }
 
 #[tauri::command]

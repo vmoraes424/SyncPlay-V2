@@ -20,7 +20,7 @@ import { PlaylistLoadMoreControls } from '../playlist/PlaylistLoadMoreControls';
 import { PlaylistPlaybackBar } from '../playlist/PlaylistPlaybackBar';
 import type { Music, MediaCategory, PlayableItem, ScheduleMediaStartDto, SyncPlayData } from '../../types';
 import type { LibMusicFiltersState } from '../../hooks/useSyncplayLibrary';
-import { useMixer } from '../../hooks/useMixer';
+import { useMixer, INTRO_CHORUS_CHANNEL_ID } from '../../hooks/useMixer';
 import { MixerStripTemplate } from '../Mixer/MixerStripTemplate';
 import {
   blockMediaRecord,
@@ -467,6 +467,7 @@ export function PlaylistColumn({
                                                   void invoke('play_index_seek_fade', {
                                                     index: idx,
                                                     positionMs,
+                                                    mixerBus: INTRO_CHORUS_CHANNEL_ID,
                                                   }).catch(console.error);
                                                 }
                                               : undefined
@@ -480,6 +481,7 @@ export function PlaylistColumn({
                                                   void invoke('play_index_seek_fade', {
                                                     index: idx,
                                                     positionMs,
+                                                    mixerBus: INTRO_CHORUS_CHANNEL_ID,
                                                   }).catch(console.error);
                                                 }
                                               : undefined

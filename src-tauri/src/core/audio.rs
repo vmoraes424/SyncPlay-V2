@@ -246,6 +246,17 @@ fn skip_with_fade_to_target_index(
     }
 }
 
+#[inline]
+fn audio_item_with_mixer_bus(item: &AudioItem, mixer_bus: Option<String>) -> AudioItem {
+    let mut out = item.clone();
+    if let Some(ref b) = mixer_bus {
+        if !b.is_empty() {
+            out.mixer_bus = Some(b.clone());
+        }
+    }
+    out
+}
+
 /// Seek inicial na faixa recém-aberta e alinha `PlaybackState.position_ms` (após `update_playback_started`).
 fn entry_seek_to_ms(
     entry: TrackEntry,
@@ -379,7 +390,10 @@ fn handle_command(
                 ch,
             );
         }
-        AudioCommand::SeekWithFade(position_ms) => {
+        AudioCommand::SeekWithFade {
+            position_ms,
+            mixer_bus,
+        } => {
             for t in finishing.drain(..) {
                 stop_entry(Some(t), mixer_tx);
             }
@@ -388,9 +402,10 @@ fn handle_command(
                 return;
             };
 
-            let Some(item) = queue.get(idx).cloned() else {
+            let Some(base_item) = queue.get(idx).cloned() else {
                 return;
             };
+            let item = audio_item_with_mixer_bus(&base_item, mixer_bus);
 
             if let Some(mut c) = current.take() {
                 if fade_ms > 0 {
@@ -405,7 +420,11 @@ fn handle_command(
                 *current = Some(entry);
             }
         }
-        AudioCommand::PlayIndexWithSeekFade { index, position_ms } => {
+        AudioCommand::PlayIndexWithSeekFade {
+            index,
+            position_ms,
+            mixer_bus,
+        } => {
             for t in finishing.drain(..) {
                 stop_entry(Some(t), mixer_tx);
             }
@@ -424,9 +443,10 @@ fn handle_command(
                 return;
             }
 
-            let Some(item) = queue.get(index).cloned() else {
+            let Some(base_item) = queue.get(index).cloned() else {
                 return;
             };
+            let item = audio_item_with_mixer_bus(&base_item, mixer_bus);
 
             let fade_ms = current
                 .as_ref()

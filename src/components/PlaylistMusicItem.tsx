@@ -24,6 +24,7 @@ import { ArtistIcon } from '../assets/ArtistIcon';
 import { VarinhaMagicaIcon } from '../assets/VarinhaMagica';
 import { ReloadMusicIcon } from '../assets/ReloadMusicIcon';
 import { getPlaylistItemFallbackCover } from '../lib/playlistItemCover';
+import { INTRO_CHORUS_CHANNEL_ID } from '../hooks/useMixer';
 
 // ─── Gradientes e bordas por tipo de mídia ────────────────────────────────────
 
@@ -505,7 +506,10 @@ export function PlaylistMusicItem({
         const p =
           onChorusSeekTo != null
             ? Promise.resolve(onChorusSeekTo(chorusSeekMs))
-            : invoke('seek_with_fade', { positionMs: chorusSeekMs });
+            : invoke('seek_with_fade', {
+                positionMs: chorusSeekMs,
+                mixerBus: INTRO_CHORUS_CHANNEL_ID,
+              });
         void p.catch((e) => {
           console.error(e);
           setRefrainUi('idle');

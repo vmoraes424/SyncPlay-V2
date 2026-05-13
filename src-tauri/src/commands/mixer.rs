@@ -12,8 +12,8 @@ fn normalize_bus_id(bus: &str) -> &str {
 
 #[tauri::command]
 pub fn get_mixer_state(state: State<AppState>) -> MixerRouting {
-    let routing = state.routing.lock().unwrap();
-    // routing.merge_missing_defaults(); // Se esse método existir no seu model
+    let mut routing = state.routing.lock().unwrap();
+    routing.merge_missing_defaults();
     routing.clone()
 }
 
