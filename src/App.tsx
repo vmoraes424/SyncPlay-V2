@@ -90,6 +90,23 @@ function blockAndProgramForPlaylistItemId(
   return null;
 }
 
+/** IDs ainda audíveis: faixa principal + faixas em fade (pós-mix / skip). */
+function collectActivePlaybackIds(
+  currentId: string | null | undefined,
+  backgroundIds: string[] | undefined | null,
+): Set<string> {
+  const out = new Set<string>();
+  if (currentId) out.add(currentId);
+  for (const id of backgroundIds ?? []) {
+    if (id) out.add(id);
+  }
+  return out;
+}
+
+function activePlaybackKey(ids: Set<string>): string {
+  return [...ids].sort().join('|');
+}
+
 function mediaMixOutMs(music: Music) {
   return music.extra?.mix?.mix_total_milesecond ?? null;
 }
@@ -349,6 +366,8 @@ function App() {
   const scheduleScrollKeyRef = useRef<string | null>(null);
   const discardAnchorRef = useRef<string | null>(null);
   const lastPlaybackDiscardAnchorRef = useRef<string | null>(null);
+  /** Chave de `collectActivePlaybackIds` no último tick; null = ainda não amostrado. */
+  const prevActivePlaybackKeyRef = useRef<string | null>(null);
   const playlistItemRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const autoMixScannedIdsRef = useRef<Set<string>>(new Set());
   const [autoMixScanItems, setAutoMixScanItems] = useState<PlayableItem[]>([]);
@@ -952,6 +971,23 @@ function App() {
     const interval = setInterval(async () => {
       try {
         const state: any = await invoke("get_playback_state");
+        const activeIds = collectActivePlaybackIds(state.current_id, state.background_ids);
+        const nextKey = activePlaybackKey(activeIds);
+        const prevKey = prevActivePlaybackKeyRef.current;
+        if (prevKey !== null) {
+          const prevIds = new Set(prevKey.split('|').filter(Boolean));
+          const removed = [...prevIds].filter((id) => !activeIds.has(id));
+          if (removed.length > 0 && activeIds.size > 0) {
+            const cur = state.current_id as string | null | undefined;
+            const target =
+              cur && activeIds.has(cur)
+                ? cur
+                : [...activeIds][0];
+            scrollToPlaylistMusic(target);
+          }
+        }
+        prevActivePlaybackKeyRef.current = nextKey;
+
         if (state.current_id) {
           setPlayingId(state.current_id);
           setCurrentTime(state.position_ms / 1000);
@@ -987,7 +1023,7 @@ function App() {
       } catch (e) { console.error(e); }
     }, 33);
     return () => clearInterval(interval);
-  }, [cuePlaying]);
+  }, [cuePlaying, scrollToPlaylistMusic]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
