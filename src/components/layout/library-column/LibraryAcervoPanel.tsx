@@ -465,6 +465,7 @@ export function LibraryAcervoPanel({
                   >
                     <LibraryMediaListItem
                       file={file}
+                      mediaCategory={mediaCategory}
                       idx={virtualRow.index}
                       isSelected={isSelected}
                       isCueing={isCueing}

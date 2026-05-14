@@ -1,7 +1,9 @@
-import type { DirFile } from '../../types';
+import type { DirFile, MediaCategory } from '../../types';
+import { useLibraryItemDrag } from '../../hooks/usePlaylistItemDrag';
 
 export interface LibraryMediaListItemProps {
   file: DirFile;
+  mediaCategory: MediaCategory;
   idx: number;
   isSelected: boolean;
   isCueing: boolean;
@@ -13,6 +15,7 @@ export interface LibraryMediaListItemProps {
 
 export function LibraryMediaListItem({
   file,
+  mediaCategory,
   idx,
   isSelected,
   isCueing,
@@ -21,18 +24,28 @@ export function LibraryMediaListItem({
   onDoubleClick,
   onCue,
 }: LibraryMediaListItemProps) {
+  const { attributes, listeners, setNodeRef, isDragging } = useLibraryItemDrag(file, mediaCategory);
+
   return (
     <div
       id={`midia-item-${idx}`}
+      ref={setNodeRef}
+      {...attributes}
       className={[
-        "flex items-center gap-2.5 px-3 h-9 cursor-pointer border-b border-[#353535]/50 select-none transition-colors duration-150",
+        "flex items-center gap-2.5 px-3 h-9 cursor-default border-b border-[#353535]/50 select-none transition-colors duration-150",
         isSelected ? "bg-white/8 border-l-2 border-l-[#525252]" : "hover:bg-white/5",
         isCueing ? "bg-violet-500/12 border-l-2 border-l-violet-400" : "",
+        isDragging ? "opacity-40" : "",
       ].join(" ")}
       title={file.path}
       onClick={onSelect}
       onDoubleClick={onDoubleClick}
     >
+      <div
+        className="flex h-full w-2 shrink-0 cursor-grab items-center justify-center touch-none self-stretch active:cursor-grabbing hover:bg-white/5 rounded-sm"
+        {...listeners}
+        aria-hidden
+      />
       <button
         type="button"
         className={[

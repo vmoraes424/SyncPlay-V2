@@ -1,3 +1,4 @@
+import { arrayMove } from '@dnd-kit/sortable';
 import type { Music, SyncPlayData } from '../types';
 
 export function legacyBool(value: unknown) {
@@ -104,6 +105,93 @@ export function clearBlockMedia(
         blocks: {
           ...data.playlists[plKey].blocks,
           [blockKey]: emptied,
+        },
+      },
+    },
+  };
+}
+
+/**
+ * Reordena mídias dentro do mesmo bloco (`musics` ou `commercials`).
+ * `activeUniqueId` / `overUniqueId` seguem o formato `${plKey}-${blockKey}-${musicKey}`.
+ */
+export function reorderMusicWithinBlock(
+  data: SyncPlayData,
+  plKey: string,
+  blockKey: string,
+  activeUniqueId: string,
+  overUniqueId: string,
+): SyncPlayData | null {
+  if (activeUniqueId === overUniqueId) return data;
+
+  const prefix = `${plKey}-${blockKey}-`;
+  if (!activeUniqueId.startsWith(prefix) || !overUniqueId.startsWith(prefix)) return null;
+
+  const activeMusicKey = activeUniqueId.slice(prefix.length);
+  const overMusicKey = overUniqueId.slice(prefix.length);
+
+  const block = data.playlists[plKey]?.blocks[blockKey];
+  if (!block) return null;
+
+  const kind = blockMediaKind(block);
+  const record = blockMediaRecord(block);
+  const entries = Object.entries(record);
+  const oldIndex = entries.findIndex(([k]) => k === activeMusicKey);
+  const newIndex = entries.findIndex(([k]) => k === overMusicKey);
+  if (oldIndex === -1 || newIndex === -1) return null;
+
+  const nextEntries = arrayMove(entries, oldIndex, newIndex);
+  const nextRecord = Object.fromEntries(nextEntries);
+  const nextBlock = blockWithSyncedDurationTotal(setBlockMediaRecord(block, kind, nextRecord));
+
+  return {
+    ...data,
+    playlists: {
+      ...data.playlists,
+      [plKey]: {
+        ...data.playlists[plKey],
+        blocks: {
+          ...data.playlists[plKey].blocks,
+          [blockKey]: nextBlock,
+        },
+      },
+    },
+  };
+}
+
+/**
+ * Insere uma mídia na posição `insertIndex` (0 = início). `musicKey` deve ser único (ex.: UUID).
+ */
+export function insertMusicIntoBlock(
+  data: SyncPlayData,
+  plKey: string,
+  blockKey: string,
+  insertIndex: number,
+  musicKey: string,
+  music: Music,
+): SyncPlayData | null {
+  const block = data.playlists[plKey]?.blocks[blockKey];
+  if (!block) return null;
+
+  const kind = blockMediaKind(block);
+  const record = blockMediaRecord(block);
+  if (musicKey in record) return null;
+
+  const entries = Object.entries(record);
+  const idx = Math.max(0, Math.min(insertIndex, entries.length));
+  entries.splice(idx, 0, [musicKey, music]);
+  const nextRecord = Object.fromEntries(entries);
+  const nextBlock = blockWithSyncedDurationTotal(setBlockMediaRecord(block, kind, nextRecord));
+
+  return {
+    ...data,
+    playlists: {
+      ...data.playlists,
+      [plKey]: {
+        ...data.playlists[plKey],
+        blocks: {
+          ...data.playlists[plKey].blocks,
+          [blockKey]: nextBlock,
         },
       },
     },

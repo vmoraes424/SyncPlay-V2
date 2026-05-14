@@ -16,15 +16,20 @@ import { PlaylistColumn } from './components/layout/PlaylistColumn';
 import { SECONDS_PER_DAY, usePlaylistData } from './hooks/usePlaylistData';
 import { useSyncplayLibrary } from './hooks/useSyncplayLibrary';
 import { formatSecondsOfDay } from './time';
+import { DragAndDropController } from './components/dnd/DragAndDropController';
 import { SyncplayLibraryProvider } from './library/SyncplayLibraryContext';
 import { useAutoMixDetection, parseAutoMixSettings } from './hooks/useAutoMixDetection';
 import { useColumnResize } from './hooks/useColumnResize';
 import { MixerProvider } from './hooks/useMixer';
+import { buildMusicFromDrag } from './lib/buildMusicFromDrag';
+import type { PlaylistInsertFromClonePayload, PlaylistReorderPayload } from './types/dnd';
 import {
   blockMediaRecord,
   getBlockDisplayStart,
+  insertMusicIntoBlock,
   legacyBool,
   mediaDurationMs,
+  reorderMusicWithinBlock,
 } from './playlist/playlistBlockHelpers';
 import {
   getSyncPlaySn,
@@ -506,6 +511,42 @@ function App() {
     setDirectoryValue,
     setSearchQuery,
   });
+
+  const handlePlaylistReorder = useCallback((p: PlaylistReorderPayload) => {
+    setData((prev) => {
+      if (!prev) return prev;
+      return (
+        reorderMusicWithinBlock(prev, p.plKey, p.blockKey, p.activeUniqueId, p.overUniqueId) ??
+        prev
+      );
+    });
+  }, [setData]);
+
+  const handlePlaylistInsertFromClone = useCallback(
+    (payload: PlaylistInsertFromClonePayload) => {
+      setData((prev) => {
+        if (!prev) return prev;
+        const block = prev.playlists[payload.plKey]?.blocks[payload.blockKey];
+        if (!block) return prev;
+        const keys = Object.keys(blockMediaRecord(block));
+        let insertIndex = 0;
+        if (payload.beforeMusicKey != null) {
+          const i = keys.indexOf(payload.beforeMusicKey);
+          if (i === -1) return prev;
+          const after = payload.insertPlacement === 'after';
+          insertIndex = after ? i + 1 : i;
+          insertIndex = Math.max(0, Math.min(insertIndex, keys.length));
+        }
+        const musicKey = crypto.randomUUID();
+        const music = buildMusicFromDrag(payload.drag, mediaCategory);
+        return (
+          insertMusicIntoBlock(prev, payload.plKey, payload.blockKey, insertIndex, musicKey, music) ??
+          prev
+        );
+      });
+    },
+    [mediaCategory, setData],
+  );
 
   const handleReloadLibraryFromApi = useCallback(async () => {
     const station = data?.header?.extra?.station?.trim();
@@ -1086,6 +1127,11 @@ function App() {
   return (
     <SyncplayLibraryProvider value={libraryMaps}>
       <MixerProvider>
+        <DragAndDropController
+          onPlaylistReorder={handlePlaylistReorder}
+          onPlaylistInsertFromClone={handlePlaylistInsertFromClone}
+          onBotoneiraShortcut={() => {}}
+        >
         <div className="flex h-screen flex-col overflow-hidden bg-[#262626]">
           <TitleBar />
           {/* Wrapper das 3 colunas */}
@@ -1209,6 +1255,7 @@ function App() {
 
           <SettingsDock />
         </div>
+        </DragAndDropController>
       </MixerProvider>
     </SyncplayLibraryProvider>
   );

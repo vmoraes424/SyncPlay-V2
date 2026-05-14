@@ -1,3 +1,5 @@
+import { useDroppable } from '@dnd-kit/core';
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import {
   useCallback,
   useEffect,
@@ -7,9 +9,11 @@ import {
   type CSSProperties,
   type Dispatch,
   type MutableRefObject,
+  type ReactNode,
   type SetStateAction,
 } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { SortablePlaylistRow } from '../dnd/SortablePlaylistRow';
 import vuMasterMuted from '../../assets/vus/master-off.png';
 import vuMaster from '../../assets/vus/master.png';
 import { BlockHeader } from '../BlockHeader';
@@ -21,6 +25,8 @@ import { PlaylistPlaybackBar } from '../playlist/PlaylistPlaybackBar';
 import type { Music, MediaCategory, PlayableItem, ScheduleMediaStartDto, SyncPlayData } from '../../types';
 import type { LibMusicFiltersState } from '../../hooks/useSyncplayLibrary';
 import { useMixer, INTRO_CHORUS_CHANNEL_ID } from '../../hooks/useMixer';
+import { useCommandIconDrag } from '../../hooks/usePlaylistItemDrag';
+import type { DroppablePlaylistBlockData } from '../../types/dnd';
 import { MixerStripTemplate } from '../Mixer/MixerStripTemplate';
 import {
   blockMediaRecord,
@@ -33,6 +39,55 @@ import {
 } from '../../playlist/playlistBlockHelpers';
 import cadeado from '../../assets/cadeado.png';
 import antena from '../../assets/operacao_local.png';
+
+function PlaylistBlockEmptyDropZone({ plKey, blockKey }: { plKey: string; blockKey: string }) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: `playlist-empty:${plKey}:${blockKey}`,
+    data: {
+      zone: 'PLAYLIST',
+      kind: 'block-empty',
+      plKey,
+      blockKey,
+    } satisfies DroppablePlaylistBlockData,
+  });
+  return (
+    <div
+      ref={setNodeRef}
+      className={[
+        'mx-1 mb-1 min-h-10 rounded border border-dashed px-2 py-2 text-center text-[0.72rem] select-none',
+        isOver ? 'border-[#19a69e]/80 bg-[#19a69e]/10 text-slate-300' : 'border-[#454545]/90 text-slate-500',
+      ].join(' ')}
+    >
+      Solte aqui para adicionar
+    </div>
+  );
+}
+
+function DraggableSidebarCommand({
+  commandId,
+  label,
+  children,
+}: {
+  commandId: string;
+  label: string;
+  children: ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef, isDragging } = useCommandIconDrag(commandId, label);
+  return (
+    <div
+      ref={setNodeRef}
+      className={[
+        'flex cursor-grab touch-none items-center justify-center active:cursor-grabbing',
+        isDragging ? 'opacity-40' : '',
+      ].join(' ')}
+      title={`Arrastar: ${label}`}
+      {...attributes}
+      {...listeners}
+    >
+      {children}
+    </div>
+  );
+}
 
 export type PlaylistVisibleGroup = {
   plKey: string;
@@ -254,23 +309,33 @@ export function PlaylistColumn({
           aria-label="Master e atalhos da playlist"
         >
           <div className="flex items-center justify-center flex-col gap-3 mb-6 mt-2">
-            <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px"
-              fill="#e3e3e3">
-              <path
-                d="m612-292 56-56-148-148v-184h-80v216l172 172ZM480-80q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Zm0-400Zm0 320q133 0 226.5-93.5T800-480q0-133-93.5-226.5T480-800q-133 0-226.5 93.5T160-480q0 133 93.5 226.5T480-160Z" />
-            </svg>
-            <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px"
-              fill="#e3e3e3">
-              <path
-                d="M480-120q-42 0-71-29t-29-71q0-42 29-71t71-29q42 0 71 29t29 71q0 42-29 71t-71 29ZM254-346l-84-86q59-59 138.5-93.5T480-560q92 0 171.5 35T790-430l-84 84q-44-44-102-69t-124-25q-66 0-124 25t-102 69ZM84-516 0-600q92-94 215-147t265-53q142 0 265 53t215 147l-84 84q-77-77-178.5-120.5T480-680q-116 0-217.5 43.5T84-516Z" />
-            </svg>
-            <img src={cadeado} alt="" className="size-5" />
-            <img src={antena} alt="" className="size-5" />
-            <svg id="operacaoLocal" fill="#19a69e" xmlns="http://www.w3.org/2000/svg" width="35" height="30"
-              viewBox="0 0 512 326">
-              <path id="auto_copy" data-name="auto copy" className="cls-1"
-                d="M20,0H492a20,20,0,0,1,20,20V305a20,20,0,0,1-20,20H20A20,20,0,0,1,0,305V20A20,20,0,0,1,20,0ZM158.234,234.194L123.575,89.71H93.682L59.889,234.194H88.483l5.2-24.261h28.81l5.415,24.261h30.327Zm-60.22-46.573c4.116-20.145,8.232-40.291,9.531-60.653,0.65,6.282,1.517,12.781,2.383,19.062,2.166,14.081,5.2,27.728,8.232,41.591H98.014ZM256.572,89.71H227.979v97.261c0,10.831.433,23.612-14.08,23.612-14.73,0-14.3-14.08-14.3-24.911V89.71H171.008V199.535c0,25.561,18.846,37.042,42.457,37.042,14.3,0,30.544-3.9,38.342-17.113,4.332-7.365,4.765-13.864,4.765-22.095V89.71Zm86.641,26.427V89.71H270v26.427h22.312V234.194H320.9V116.137h22.312ZM454.767,162.06c0-18.2-1.95-39.208-13-54.371-8.665-11.914-22.745-20.145-37.692-20.145-14.73,0-29.243,8.015-37.691,20.145-11.048,15.6-13,35.742-13,54.371,0,18.2,1.95,38.991,13,54.155,8.664,11.914,22.744,20.362,37.691,20.362s29.244-8.448,37.692-20.362C452.817,200.618,454.767,180.689,454.767,162.06Zm-30.327-.65c0,13.214-1.516,47.656-20.362,47.656s-20.362-34.442-20.362-47.656,1.516-47.656,20.362-47.656S424.44,148.2,424.44,161.41Z" />
-            </svg>
+            <DraggableSidebarCommand commandId="cmd-hora" label="Hora">
+              <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px"
+                fill="#e3e3e3">
+                <path
+                  d="m612-292 56-56-148-148v-184h-80v216l172 172ZM480-80q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Zm0-400Zm0 320q133 0 226.5-93.5T800-480q0-133-93.5-226.5T480-800q-133 0-226.5 93.5T160-480q0 133 93.5 226.5T480-160Z" />
+              </svg>
+            </DraggableSidebarCommand>
+            <DraggableSidebarCommand commandId="cmd-locucao" label="Locução">
+              <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px"
+                fill="#e3e3e3">
+                <path
+                  d="M480-120q-42 0-71-29t-29-71q0-42 29-71t71-29q42 0 71 29t29 71q0 42-29 71t-71 29ZM254-346l-84-86q59-59 138.5-93.5T480-560q92 0 171.5 35T790-430l-84 84q-44-44-102-69t-124-25q-66 0-124 25t-102 69ZM84-516 0-600q92-94 215-147t265-53q142 0 265 53t215 147l-84 84q-77-77-178.5-120.5T480-680q-116 0-217.5 43.5T84-516Z" />
+              </svg>
+            </DraggableSidebarCommand>
+            <DraggableSidebarCommand commandId="cmd-cadeado" label="Cadeado">
+              <img src={cadeado} alt="" className="size-5 pointer-events-none" draggable={false} />
+            </DraggableSidebarCommand>
+            <DraggableSidebarCommand commandId="cmd-antena" label="Antena / local">
+              <img src={antena} alt="" className="size-5 pointer-events-none" draggable={false} />
+            </DraggableSidebarCommand>
+            <DraggableSidebarCommand commandId="cmd-operacao-local" label="Operação local">
+              <svg id="operacaoLocal" fill="#19a69e" xmlns="http://www.w3.org/2000/svg" width="35" height="30"
+                viewBox="0 0 512 326" className="pointer-events-none">
+                <path id="auto_copy" data-name="auto copy" className="cls-1"
+                  d="M20,0H492a20,20,0,0,1,20,20V305a20,20,0,0,1-20,20H20A20,20,0,0,1,0,305V20A20,20,0,0,1,20,0ZM158.234,234.194L123.575,89.71H93.682L59.889,234.194H88.483l5.2-24.261h28.81l5.415,24.261h30.327Zm-60.22-46.573c4.116-20.145,8.232-40.291,9.531-60.653,0.65,6.282,1.517,12.781,2.383,19.062,2.166,14.081,5.2,27.728,8.232,41.591H98.014ZM256.572,89.71H227.979v97.261c0,10.831.433,23.612-14.08,23.612-14.73,0-14.3-14.08-14.3-24.911V89.71H171.008V199.535c0,25.561,18.846,37.042,42.457,37.042,14.3,0,30.544-3.9,38.342-17.113,4.332-7.365,4.765-13.864,4.765-22.095V89.71Zm86.641,26.427V89.71H270v26.427h22.312V234.194H320.9V116.137h22.312ZM454.767,162.06c0-18.2-1.95-39.208-13-54.371-8.665-11.914-22.745-20.145-37.692-20.145-14.73,0-29.243,8.015-37.691,20.145-11.048,15.6-13,35.742-13,54.371,0,18.2,1.95,38.991,13,54.155,8.664,11.914,22.744,20.362,37.691,20.362s29.244-8.448,37.692-20.362C452.817,200.618,454.767,180.689,454.767,162.06Zm-30.327-.65c0,13.214-1.516,47.656-20.362,47.656s-20.362-34.442-20.362-47.656,1.516-47.656,20.362-47.656S424.44,148.2,424.44,161.41Z" />
+              </svg>
+            </DraggableSidebarCommand>
           </div>
           <MixerStripTemplate
             meterFill
@@ -391,8 +456,13 @@ export function PlaylistColumn({
                           />
                           {blockExpanded ? (
                             <div className="playlist-block-body">
-                              {musicEntries.length !== 0 && (
-                                <>
+                              {musicEntries.length === 0 ? (
+                                <PlaylistBlockEmptyDropZone plKey={plKey} blockKey={blockKey} />
+                              ) : (
+                                <SortableContext
+                                  items={musicEntries.map(([k]) => `${plKey}-${blockKey}-${k}`)}
+                                  strategy={verticalListSortingStrategy}
+                                >
                                   {musicEntries.map(([musicKey, music]) => {
                                     const uniqueId = `${plKey}-${blockKey}-${musicKey}`;
                                     const isCurrentlyPlaying = playingId === uniqueId;
@@ -403,13 +473,14 @@ export function PlaylistColumn({
                                       legacyBool(music.manualDiscard ?? music.manual_discard) ||
                                       scheduleStart?.active === false;
                                     return (
-                                      <div
+                                      <SortablePlaylistRow
                                         key={musicKey}
-                                        ref={(node) => {
-                                          if (node) playlistItemRefs.current[uniqueId] = node;
-                                          else delete playlistItemRefs.current[uniqueId];
-                                        }}
-                                        data-playlist-music-id={uniqueId}
+                                        uniqueId={uniqueId}
+                                        plKey={plKey}
+                                        blockKey={blockKey}
+                                        musicKey={musicKey}
+                                        music={music}
+                                        playlistItemRefs={playlistItemRefs}
                                       >
                                         <PlaylistMusicItem
                                           music={music}
@@ -493,10 +564,10 @@ export function PlaylistColumn({
                                             invoke("play_index", { index: idx + 1 }).catch(console.error);
                                           }}
                                         />
-                                      </div>
+                                      </SortablePlaylistRow>
                                     );
                                   })}
-                                </>
+                                </SortableContext>
                               )}
                             </div>
                           ) : null}
