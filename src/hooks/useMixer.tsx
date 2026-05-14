@@ -79,8 +79,8 @@ const DEFAULT_VU: VuLevel = {
 
 export const INTRO_CHORUS_CHANNEL_ID = "intro_chorus" as const;
 
-export const CHANNELS = ["playlist", INTRO_CHORUS_CHANNEL_ID, "vem", "mic", "linein", "cue"] as const;
-export const BUSES = ["master", "monitor", "retorno"] as const;
+export const CHANNELS = ["playlist", "vem", INTRO_CHORUS_CHANNEL_ID, "mic", "linein", "cue"] as const;
+export const BUSES = ["retorno","monitor","master"] as const;
 
 export type ChannelId = (typeof CHANNELS)[number];
 export type BusId = (typeof BUSES)[number];

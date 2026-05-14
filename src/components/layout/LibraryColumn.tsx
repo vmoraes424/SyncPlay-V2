@@ -232,17 +232,17 @@ export function LibraryColumn({
           </p>
           <svg className='w-6 h-6 absolute right-2 top-0' id="rdsManual" data-status="0" viewBox="0 0 33 33" fill="none"
             xmlns="http://www.w3.org/2000/svg">
-            <g clip-path="url(#clip0_5772_365)">
+            <g clipPath="url(#clip0_5772_365)">
               <path
                 d="M26.9889 17.3479V19.2186C26.9889 21.3052 25.2983 22.9959 23.2116 22.9959H17.2849L10.9889 28.0332V22.9959H8.0996C6.01293 22.9959 4.32227 21.3052 4.32227 19.2186V9.14391C4.32227 7.05724 6.01293 5.36658 8.0996 5.36658H14.9889"
-                stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-              <path d="M22.5557 7.54524L23.6837 6.41591V10.9292" stroke="white" stroke-width="1.5"
-                stroke-linecap="round" stroke-linejoin="round" />
-              <path d="M22.5596 10.9319H24.8076" stroke="white" stroke-width="1.5" stroke-linecap="round"
-                stroke-linejoin="round" />
+                stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M22.5557 7.54524L23.6837 6.41591V10.9292" stroke="white" strokeWidth="1.5"
+                strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M22.5596 10.9319H24.8076" stroke="white" strokeWidth="1.5" strokeLinecap="round"
+                strokeLinejoin="round" />
               <path
                 d="M23.6553 14.6999C26.969 14.6999 29.6553 12.0136 29.6553 8.69991C29.6553 5.3862 26.969 2.69991 23.6553 2.69991C20.3416 2.69991 17.6553 5.3862 17.6553 8.69991C17.6553 12.0136 20.3416 14.6999 23.6553 14.6999Z"
-                stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
             </g>
             <defs>
               <clipPath id="clip0_5772_365">
@@ -301,15 +301,15 @@ export function LibraryColumn({
             className="flex flex-1 flex-col max-w-full min-w-0 rounded-[10px] bg-[#2a2a2a] p-2"
           >
             <div className="flex gap-1.5 items-center justify-between">
-              <div className="min-h-5">
-                <span
-                  className="block truncate text-neutral-300 text-[11px]"
-                  title={cueFile?.split(/[/\\]/).pop()?.replace(/\.[^/.]+$/, '') ?? undefined}
-                >
-                  {cueFile
-                    ? (cueFile.split(/[/\\]/).pop()?.replace(/\.[^/.]+$/, '') ?? cueFile)
-                    : 'Arraste para ouvir 👉'}
-                </span>
+              <div className="min-h-5 min-w-0 flex-1">
+                <MarqueeText
+                  text={
+                    cueFile
+                      ? (cueFile.split(/[/\\]/).pop()?.replace(/\.[^/.]+$/, '') ?? cueFile)
+                      : 'Arraste para ouvir 👉'
+                  }
+                  className="text-neutral-300 text-[11px]"
+                />
               </div>
               <div className="flex items-center gap-1 text-neutral-500 border p-2 border-dashed rounded">
                 <Music2 className="h-3 w-3 opacity-80" strokeWidth={1.25} aria-hidden />
