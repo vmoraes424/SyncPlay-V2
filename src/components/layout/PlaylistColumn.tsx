@@ -28,11 +28,12 @@ import { useMixer, INTRO_CHORUS_CHANNEL_ID } from '../../hooks/useMixer';
 import { useCommandIconDrag } from '../../hooks/usePlaylistItemDrag';
 import type { DroppablePlaylistBlockData } from '../../types/dnd';
 import { MixerStripTemplate } from '../Mixer/MixerStripTemplate';
+import { useDndContext } from '@dnd-kit/core';
 import {
-  blockMediaRecord,
   clearBlockMedia,
   formatBrazilianPlaylistDate,
   getBlockDisplayStart,
+  getOrderedBlockMediaEntries,
   isoDateHintFromPlaylistKey,
   legacyBool,
   removeMusicFromBlock,
@@ -195,6 +196,50 @@ export function PlaylistColumn({
   scrollToPlaylistMusic,
 }: PlaylistColumnProps) {
   const { getBusConfig, getVuLevel, setBusGain, setBusMuted } = useMixer();
+
+  const { active, over } = useDndContext();
+  const activeIsExternal = !!(
+    active?.data.current &&
+    ((active.data.current as any).sourceZone === 'ACERVO' ||
+      (active.data.current as any).sourceZone === 'COMANDOS')
+  );
+
+  const overId = over ? String(over.id) : null;
+  const overIdRef = useRef<string | null>(null);
+  overIdRef.current = overId;
+
+  const [indicatorTarget, setIndicatorTarget] = useState<{
+    uniqueId: string;
+    pos: 'before' | 'after';
+  } | null>(null);
+
+  useEffect(() => {
+    if (!activeIsExternal) {
+      setIndicatorTarget(null);
+      return;
+    }
+    const onMove = (e: PointerEvent) => {
+      const id = overIdRef.current;
+      if (!id) {
+        setIndicatorTarget((p) => (p ? null : p));
+        return;
+      }
+      const el = playlistItemRefs.current[id];
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const pos: 'before' | 'after' =
+        e.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+      setIndicatorTarget((p) =>
+        p?.uniqueId === id && p?.pos === pos ? p : { uniqueId: id, pos },
+      );
+    };
+    window.addEventListener('pointermove', onMove, { passive: true });
+    return () => window.removeEventListener('pointermove', onMove);
+  }, [activeIsExternal, playlistItemRefs]);
+
+  useEffect(() => {
+    if (!overId || !activeIsExternal) setIndicatorTarget(null);
+  }, [overId, activeIsExternal]);
 
   const masterConfig = getBusConfig('master');
   const masterVu = getVuLevel('master');
@@ -378,7 +423,7 @@ export function PlaylistColumn({
                 {visiblePlaylistGroups.map(({ plKey, pl, blocks }) => (
                   <div key={plKey}>
                     {blocks.map(([blockKey, block]) => {
-                      const musicEntries = Object.entries(blockMediaRecord(block));
+                      const musicEntries = getOrderedBlockMediaEntries(block);
                       const blockDisplayStart = getBlockDisplayStart(block.start, musicEntries);
                       const blockUiKey = `${plKey}::${blockKey}`;
                       const anchor = playingId ?? scheduledMusicId;
@@ -406,6 +451,8 @@ export function PlaylistColumn({
                         block.start_alias != null && String(block.start_alias).trim() !== '';
                       const dataHideDisabled = playlistBlockHideDisabled[blockUiKey] === true;
                       const blockExpanded = playlistBlockExpanded[blockUiKey] !== false;
+                      const itemsIds = musicEntries.map(([k]) => `${plKey}-${blockKey}-${k}`);
+
                       return (
                         <section
                           key={`${plKey}-${blockKey}`}
@@ -460,7 +507,7 @@ export function PlaylistColumn({
                                 <PlaylistBlockEmptyDropZone plKey={plKey} blockKey={blockKey} />
                               ) : (
                                 <SortableContext
-                                  items={musicEntries.map(([k]) => `${plKey}-${blockKey}-${k}`)}
+                                  items={itemsIds}
                                   strategy={verticalListSortingStrategy}
                                 >
                                   {musicEntries.map(([musicKey, music]) => {
@@ -472,66 +519,80 @@ export function PlaylistColumn({
                                       legacyBool(music.discarded) ||
                                       legacyBool(music.manualDiscard ?? music.manual_discard) ||
                                       scheduleStart?.active === false;
+                                    const showDropBefore =
+                                      activeIsExternal &&
+                                      indicatorTarget?.uniqueId === uniqueId &&
+                                      indicatorTarget.pos === 'before';
+                                    const showDropAfter =
+                                      activeIsExternal &&
+                                      indicatorTarget?.uniqueId === uniqueId &&
+                                      indicatorTarget.pos === 'after';
                                     return (
-                                      <SortablePlaylistRow
-                                        key={musicKey}
-                                        uniqueId={uniqueId}
-                                        plKey={plKey}
-                                        blockKey={blockKey}
-                                        musicKey={musicKey}
-                                        music={music}
-                                        playlistItemRefs={playlistItemRefs}
-                                      >
-                                        <PlaylistMusicItem
+                                      <div key={musicKey} className="flex min-h-0 flex-col">
+                                        {showDropBefore && (
+                                          <div
+                                            className="pointer-events-none mx-2 mb-1 shrink-0 rounded-md bg-[#19a69e]/14 min-h-[48px]"
+                                            aria-hidden
+                                          />
+                                        )}
+                                        <SortablePlaylistRow
+                                          uniqueId={uniqueId}
+                                          plKey={plKey}
+                                          blockKey={blockKey}
+                                          musicKey={musicKey}
                                           music={music}
-                                          itemUniqueId={uniqueId}
-                                          overrideMixEndMs={autoMixOverrides[uniqueId]}
-                                          filterVisibility={playlistFilterVis}
-                                          libraryYearDecade={libraryYearDecade}
-                                          showMusicFileName={showNameMusicFiles}
-                                          showCommercialFileName={showNameCommercialFiles}
-                                          showMediaFileName={showNameMediaFiles}
-                                          libMusicFilterIds={libMusicFilterIds}
-                                          playlistSidebarFilterHighlight={{
-                                            searchQuery,
-                                            mediaCategory,
-                                            directoryValue,
-                                          }}
-                                          onPlaylistFilterClick={applyPlaylistFilterClick}
-                                          startLabel={scheduleStart?.startLabel}
-                                          isCurrentlyPlaying={isCurrentlyPlaying}
-                                          isBackgroundPlaying={isBackgroundPlaying}
-                                          isScheduledUpcoming={scheduledMusicId === uniqueId && !isCurrentlyPlaying && !isBackgroundPlaying}
-                                          isDisabled={isDisabled}
-                                          isPlaying={isPlaying}
-                                          currentTime={currentTime}
-                                          duration={isBackgroundPlaying && backgroundDurations[uniqueId] ? backgroundDurations[uniqueId] / 1000 : duration}
-                                          backgroundPosition={backgroundPositions[uniqueId] ?? 0}
-                                          onPlay={() => togglePlay(uniqueId)}
-                                          onSeek={handleSeek}
-                                          showTrashSkipIcon={trashHighlightPlaylistId === uniqueId}
-                                          onPlaylistItemSelect={() =>
-                                            setTrashHighlightPlaylistId((prev) =>
-                                              prev === uniqueId ? null : uniqueId
-                                            )
-                                          }
-                                          onTrashRemove={
-                                            trashHighlightPlaylistId === uniqueId
-                                              ? () => {
-                                                setTrashHighlightPlaylistId(null);
-                                                setData((prev) => {
-                                                  if (!prev) return prev;
-                                                  return (
-                                                    removeMusicFromBlock(prev, plKey, blockKey, musicKey) ??
-                                                    prev
-                                                  );
-                                                });
-                                              }
-                                              : undefined
-                                          }
-                                          onIntroSeekTo={
-                                            getIntroSeekMs(music) != null
-                                              ? (positionMs) => {
+                                          playlistItemRefs={playlistItemRefs}
+                                        >
+                                          <PlaylistMusicItem
+                                            music={music}
+                                            itemUniqueId={uniqueId}
+                                            overrideMixEndMs={autoMixOverrides[uniqueId]}
+                                            filterVisibility={playlistFilterVis}
+                                            libraryYearDecade={libraryYearDecade}
+                                            showMusicFileName={showNameMusicFiles}
+                                            showCommercialFileName={showNameCommercialFiles}
+                                            showMediaFileName={showNameMediaFiles}
+                                            libMusicFilterIds={libMusicFilterIds}
+                                            playlistSidebarFilterHighlight={{
+                                              searchQuery,
+                                              mediaCategory,
+                                              directoryValue,
+                                            }}
+                                            onPlaylistFilterClick={applyPlaylistFilterClick}
+                                            startLabel={scheduleStart?.startLabel}
+                                            isCurrentlyPlaying={isCurrentlyPlaying}
+                                            isBackgroundPlaying={isBackgroundPlaying}
+                                            isScheduledUpcoming={scheduledMusicId === uniqueId && !isCurrentlyPlaying && !isBackgroundPlaying}
+                                            isDisabled={isDisabled}
+                                            isPlaying={isPlaying}
+                                            currentTime={currentTime}
+                                            duration={isBackgroundPlaying && backgroundDurations[uniqueId] ? backgroundDurations[uniqueId] / 1000 : duration}
+                                            backgroundPosition={backgroundPositions[uniqueId] ?? 0}
+                                            onPlay={() => togglePlay(uniqueId)}
+                                            onSeek={handleSeek}
+                                            showTrashSkipIcon={trashHighlightPlaylistId === uniqueId}
+                                            onPlaylistItemSelect={() =>
+                                              setTrashHighlightPlaylistId((prev) =>
+                                                prev === uniqueId ? null : uniqueId
+                                              )
+                                            }
+                                            onTrashRemove={
+                                              trashHighlightPlaylistId === uniqueId
+                                                ? () => {
+                                                  setTrashHighlightPlaylistId(null);
+                                                  setData((prev) => {
+                                                    if (!prev) return prev;
+                                                    return (
+                                                      removeMusicFromBlock(prev, plKey, blockKey, musicKey) ??
+                                                      prev
+                                                    );
+                                                  });
+                                                }
+                                                : undefined
+                                            }
+                                            onIntroSeekTo={
+                                              getIntroSeekMs(music) != null
+                                                ? (positionMs) => {
                                                   const q = playableItemsRef.current;
                                                   const idx = q.findIndex((i) => i.id === uniqueId);
                                                   if (idx === -1) return;
@@ -541,11 +602,11 @@ export function PlaylistColumn({
                                                     mixerBus: INTRO_CHORUS_CHANNEL_ID,
                                                   }).catch(console.error);
                                                 }
-                                              : undefined
-                                          }
-                                          onChorusSeekTo={
-                                            getChorusSeekMs(music) != null
-                                              ? (positionMs) => {
+                                                : undefined
+                                            }
+                                            onChorusSeekTo={
+                                              getChorusSeekMs(music) != null
+                                                ? (positionMs) => {
                                                   const q = playableItemsRef.current;
                                                   const idx = q.findIndex((i) => i.id === uniqueId);
                                                   if (idx === -1) return;
@@ -555,16 +616,23 @@ export function PlaylistColumn({
                                                     mixerBus: INTRO_CHORUS_CHANNEL_ID,
                                                   }).catch(console.error);
                                                 }
-                                              : undefined
-                                          }
-                                          onSkipNextFromRow={() => {
-                                            const q = playableItemsRef.current;
-                                            const idx = q.findIndex((i) => i.id === uniqueId);
-                                            if (idx === -1) return;
-                                            invoke("play_index", { index: idx + 1 }).catch(console.error);
-                                          }}
-                                        />
-                                      </SortablePlaylistRow>
+                                                : undefined
+                                            }
+                                            onSkipNextFromRow={() => {
+                                              const q = playableItemsRef.current;
+                                              const idx = q.findIndex((i) => i.id === uniqueId);
+                                              if (idx === -1) return;
+                                              invoke("play_index", { index: idx + 1 }).catch(console.error);
+                                            }}
+                                          />
+                                        </SortablePlaylistRow>
+                                        {showDropAfter && (
+                                          <div
+                                            className="pointer-events-none mx-2 mt-1 shrink-0 rounded-md bg-[#19a69e]/14 min-h-[48px]"
+                                            aria-hidden
+                                          />
+                                        )}
+                                      </div>
                                     );
                                   })}
                                 </SortableContext>
@@ -593,6 +661,6 @@ export function PlaylistColumn({
           </div>
         </div>
       </div>
-    </div>
+    </div >
   );
 }

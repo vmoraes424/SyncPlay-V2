@@ -122,6 +122,15 @@ export interface Block {
   musics?: Record<string, Music>;
   /** Spot/comerciais (blocos tipo commercial no SyncPlay) */
   commercials?: Record<string, Music>;
+  /**
+   * Ordem de exibição local das chaves de `musics` após inserções/reordenações em memória.
+   * Necessário porque chaves numéricas ("0","1","2") em objetos JS sempre são ordenadas
+   * numericamente pelo motor, o que jogaria novas entradas com chave UUID para o final.
+   * Nunca enviado ao servidor — campo de controle local apenas.
+   */
+  _localMusicOrder?: string[];
+  /** Mesma semântica de `_localMusicOrder` para blocos de comerciais. */
+  _localCommercialOrder?: string[];
 }
 
 export interface Playlist {

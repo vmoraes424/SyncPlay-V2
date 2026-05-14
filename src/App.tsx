@@ -26,6 +26,7 @@ import type { PlaylistInsertFromClonePayload, PlaylistReorderPayload } from './t
 import {
   blockMediaRecord,
   getBlockDisplayStart,
+  getOrderedBlockMediaEntries,
   insertMusicIntoBlock,
   legacyBool,
   mediaDurationMs,
@@ -528,17 +529,26 @@ function App() {
         if (!prev) return prev;
         const block = prev.playlists[payload.plKey]?.blocks[payload.blockKey];
         if (!block) return prev;
-        const keys = Object.keys(blockMediaRecord(block));
-        let insertIndex = 0;
-        if (payload.beforeMusicKey != null) {
-          const i = keys.indexOf(payload.beforeMusicKey);
-          if (i === -1) return prev;
-          const after = payload.insertPlacement === 'after';
-          insertIndex = after ? i + 1 : i;
-          insertIndex = Math.max(0, Math.min(insertIndex, keys.length));
+
+        // getOrderedBlockMediaEntries respeita _localMusicOrder para blocos já
+        // modificados em memória, evitando que chaves numéricas do servidor
+        // reordenem o array e façam o índice calculado não bater com o índice visual.
+        const entries = getOrderedBlockMediaEntries(block);
+
+        let insertIndex: number;
+        if (payload.beforeMusicKey == null) {
+          insertIndex = 0;
+        } else {
+          const targetIndex = entries.findIndex(([k]) => k === payload.beforeMusicKey);
+          insertIndex = targetIndex >= 0 ? targetIndex : entries.length;
+          if (payload.insertPlacement === 'after' && targetIndex >= 0) {
+            insertIndex += 1;
+          }
         }
+
         const musicKey = crypto.randomUUID();
         const music = buildMusicFromDrag(payload.drag, mediaCategory);
+
         return (
           insertMusicIntoBlock(prev, payload.plKey, payload.blockKey, insertIndex, musicKey, music) ??
           prev
@@ -552,7 +562,7 @@ function App() {
     const station = data?.header?.extra?.station?.trim();
     if (!station) {
       setLibraryReloadError(
-        'Playlist sem código da estação (`header.extra.station`). Carregue a playlist do dia para sincronizar o acervo.',
+        'Playlist sem código da estação. Carregue a playlist do dia para sincronizar o acervo.',
       );
       return;
     }
@@ -1130,131 +1140,131 @@ function App() {
         <DragAndDropController
           onPlaylistReorder={handlePlaylistReorder}
           onPlaylistInsertFromClone={handlePlaylistInsertFromClone}
-          onBotoneiraShortcut={() => {}}
+          onBotoneiraShortcut={() => { }}
         >
-        <div className="flex h-screen flex-col overflow-hidden bg-[#262626]">
-          <TitleBar />
-          {/* Wrapper das 3 colunas */}
-          <div
-            ref={headerRef}
-            className="flex min-h-0 flex-1 bg-[#262626] border-t-4 border-[#353535]"
-            style={{ overflow: 'hidden' }}
-          >
-
-            <PlaylistColumn
-              col1Style={col1Style}
-              nowPlayingMusic={nowPlayingMusic}
-              currentTime={currentTime}
-              duration={duration}
-              playingId={playingId}
-              scheduledMusicId={scheduledMusicId}
-              isPlaying={isPlaying}
-              playlistCurrentBlockLine={playlistCurrentBlockLine}
-              loading={loading}
-              error={error}
-              data={data}
-              visiblePlaylistGroups={visiblePlaylistGroups}
-              playlistBaseDate={playlistBaseDate}
-              playlistBlockHideDisabled={playlistBlockHideDisabled}
-              setPlaylistBlockHideDisabled={setPlaylistBlockHideDisabled}
-              playlistBlockExpanded={playlistBlockExpanded}
-              setPlaylistBlockExpanded={setPlaylistBlockExpanded}
-              setData={setData}
-              autoMixOverrides={autoMixOverrides}
-              playlistFilterVis={playlistFilterVis}
-              libraryYearDecade={libraryYearDecade}
-              showNameMusicFiles={showNameMusicFiles}
-              showNameCommercialFiles={showNameCommercialFiles}
-              showNameMediaFiles={showNameMediaFiles}
-              libMusicFilterIds={libMusicFilterIds}
-              applyPlaylistFilterClick={applyPlaylistFilterClick}
-              searchQuery={searchQuery}
-              mediaCategory={mediaCategory}
-              directoryValue={directoryValue}
-              scheduleStarts={scheduleStarts}
-              trashHighlightPlaylistId={trashHighlightPlaylistId}
-              setTrashHighlightPlaylistId={setTrashHighlightPlaylistId}
-              backgroundIds={backgroundIds}
-              backgroundDurations={backgroundDurations}
-              backgroundPositions={backgroundPositions}
-              togglePlay={togglePlay}
-              handleSeek={handleSeek}
-              playableItemsRef={playableItemsRef}
-              playlistItemRefs={playlistItemRefs}
-              playlistHasMoreTail={playlistHasMoreTail}
-              playlistAppendingDay={playlistAppendingDay}
-              playlistAppendError={playlistAppendError}
-              loadNextPlaylistBlock={loadNextPlaylistBlock}
-              loadAllPlaylistBlocksUntilEnd={loadAllPlaylistBlocksUntilEnd}
-              scrollToPlaylistMusic={scrollToPlaylistMusic}
-            />
-
+          <div className="flex h-screen flex-col overflow-hidden bg-[#262626]">
+            <TitleBar />
+            {/* Wrapper das 3 colunas */}
             <div
-              className="shrink-0 cursor-col-resize bg-[#353535] hover:bg-neutral-500 transition-colors duration-150 z-10"
-              style={{ width: handleW, touchAction: 'none' }}
-              onMouseDown={onHandleMouseDown('h1')}
-            />
+              ref={headerRef}
+              className="flex min-h-0 flex-1 bg-[#262626] border-t-4 border-[#353535]"
+              style={{ overflow: 'hidden' }}
+            >
 
-            <LibraryColumn
-              col2Style={col2Style}
-              playlistDateYmd={playlistBaseDate}
-              branchName={data?.header?.extra?.branch_name?.trim() || undefined}
-              branchImgUrl={data?.header?.extra?.branch_img?.trim() || undefined}
-              libraryYearDecade={libraryYearDecade}
-              mediaCategory={mediaCategory}
-              setMediaCategory={setMediaCategory}
-              directoryOptions={directoryOptions}
-              directoryValue={directoryValue}
-              setDirectoryValue={setDirectoryValue}
-              setDirectoryKind={setDirectoryKind}
-              playlistStationCode={data?.header?.extra?.station?.trim()}
-              syncPlaySn={syncPlaySnForApi}
-              onReloadSuperaudioApiConfig={reloadSuperaudioApiConfig}
-              libraryReloadBusy={libraryReloadBusy}
-              libraryReloadError={libraryReloadError}
-              onReloadLibrary={() => void handleReloadLibraryFromApi()}
-              libMusicFilterIds={libMusicFilterIds}
-              setLibMusicFilterIds={setLibMusicFilterIds}
-              resetLibMusicFilters={resetLibMusicFilters}
-              musicCategoryMap={musicCategoryMap}
-              musicStyleMap={musicStyleMap}
-              musicRhythmMap={musicRhythmMap}
-              musicNationalityMap={musicNationalityMap}
-              searchQuery={searchQuery}
-              setSearchQuery={setSearchQuery}
-              filteredFiles={filteredFiles}
-              dirError={dirError}
-              dirLoading={dirLoading}
-              dirFiles={dirFiles}
-              parentRef={parentRef}
-              rowVirtualizer={rowVirtualizer}
-              selectedFile={selectedFile}
-              setSelectedFile={setSelectedFile}
-              cueFile={cueFile}
-              cuePlaying={cuePlaying}
-              setCuePlaying={setCuePlaying}
-              cueTime={cueTime}
-              cueDuration={cueDuration}
-              toggleCue={toggleCue}
-              toggleCuePlaybackToolbar={toggleCuePlaybackToolbar}
-              stopCuePlayer={stopCuePlayer}
-              handleCueSeek={handleCueSeek}
-            />
+              <PlaylistColumn
+                col1Style={col1Style}
+                nowPlayingMusic={nowPlayingMusic}
+                currentTime={currentTime}
+                duration={duration}
+                playingId={playingId}
+                scheduledMusicId={scheduledMusicId}
+                isPlaying={isPlaying}
+                playlistCurrentBlockLine={playlistCurrentBlockLine}
+                loading={loading}
+                error={error}
+                data={data}
+                visiblePlaylistGroups={visiblePlaylistGroups}
+                playlistBaseDate={playlistBaseDate}
+                playlistBlockHideDisabled={playlistBlockHideDisabled}
+                setPlaylistBlockHideDisabled={setPlaylistBlockHideDisabled}
+                playlistBlockExpanded={playlistBlockExpanded}
+                setPlaylistBlockExpanded={setPlaylistBlockExpanded}
+                setData={setData}
+                autoMixOverrides={autoMixOverrides}
+                playlistFilterVis={playlistFilterVis}
+                libraryYearDecade={libraryYearDecade}
+                showNameMusicFiles={showNameMusicFiles}
+                showNameCommercialFiles={showNameCommercialFiles}
+                showNameMediaFiles={showNameMediaFiles}
+                libMusicFilterIds={libMusicFilterIds}
+                applyPlaylistFilterClick={applyPlaylistFilterClick}
+                searchQuery={searchQuery}
+                mediaCategory={mediaCategory}
+                directoryValue={directoryValue}
+                scheduleStarts={scheduleStarts}
+                trashHighlightPlaylistId={trashHighlightPlaylistId}
+                setTrashHighlightPlaylistId={setTrashHighlightPlaylistId}
+                backgroundIds={backgroundIds}
+                backgroundDurations={backgroundDurations}
+                backgroundPositions={backgroundPositions}
+                togglePlay={togglePlay}
+                handleSeek={handleSeek}
+                playableItemsRef={playableItemsRef}
+                playlistItemRefs={playlistItemRefs}
+                playlistHasMoreTail={playlistHasMoreTail}
+                playlistAppendingDay={playlistAppendingDay}
+                playlistAppendError={playlistAppendError}
+                loadNextPlaylistBlock={loadNextPlaylistBlock}
+                loadAllPlaylistBlocksUntilEnd={loadAllPlaylistBlocksUntilEnd}
+                scrollToPlaylistMusic={scrollToPlaylistMusic}
+              />
 
-            {!isRetrieveMode && (
               <div
                 className="shrink-0 cursor-col-resize bg-[#353535] hover:bg-neutral-500 transition-colors duration-150 z-10"
                 style={{ width: handleW, touchAction: 'none' }}
-                onMouseDown={onHandleMouseDown('h2')}
+                onMouseDown={onHandleMouseDown('h1')}
               />
-            )}
 
-            {!isRetrieveMode && <MixerColumn />}
+              <LibraryColumn
+                col2Style={col2Style}
+                playlistDateYmd={playlistBaseDate}
+                branchName={data?.header?.extra?.branch_name?.trim() || undefined}
+                branchImgUrl={data?.header?.extra?.branch_img?.trim() || undefined}
+                libraryYearDecade={libraryYearDecade}
+                mediaCategory={mediaCategory}
+                setMediaCategory={setMediaCategory}
+                directoryOptions={directoryOptions}
+                directoryValue={directoryValue}
+                setDirectoryValue={setDirectoryValue}
+                setDirectoryKind={setDirectoryKind}
+                playlistStationCode={data?.header?.extra?.station?.trim()}
+                syncPlaySn={syncPlaySnForApi}
+                onReloadSuperaudioApiConfig={reloadSuperaudioApiConfig}
+                libraryReloadBusy={libraryReloadBusy}
+                libraryReloadError={libraryReloadError}
+                onReloadLibrary={() => void handleReloadLibraryFromApi()}
+                libMusicFilterIds={libMusicFilterIds}
+                setLibMusicFilterIds={setLibMusicFilterIds}
+                resetLibMusicFilters={resetLibMusicFilters}
+                musicCategoryMap={musicCategoryMap}
+                musicStyleMap={musicStyleMap}
+                musicRhythmMap={musicRhythmMap}
+                musicNationalityMap={musicNationalityMap}
+                searchQuery={searchQuery}
+                setSearchQuery={setSearchQuery}
+                filteredFiles={filteredFiles}
+                dirError={dirError}
+                dirLoading={dirLoading}
+                dirFiles={dirFiles}
+                parentRef={parentRef}
+                rowVirtualizer={rowVirtualizer}
+                selectedFile={selectedFile}
+                setSelectedFile={setSelectedFile}
+                cueFile={cueFile}
+                cuePlaying={cuePlaying}
+                setCuePlaying={setCuePlaying}
+                cueTime={cueTime}
+                cueDuration={cueDuration}
+                toggleCue={toggleCue}
+                toggleCuePlaybackToolbar={toggleCuePlaybackToolbar}
+                stopCuePlayer={stopCuePlayer}
+                handleCueSeek={handleCueSeek}
+              />
 
+              {!isRetrieveMode && (
+                <div
+                  className="shrink-0 cursor-col-resize bg-[#353535] hover:bg-neutral-500 transition-colors duration-150 z-10"
+                  style={{ width: handleW, touchAction: 'none' }}
+                  onMouseDown={onHandleMouseDown('h2')}
+                />
+              )}
+
+              {!isRetrieveMode && <MixerColumn />}
+
+            </div>
+
+            <SettingsDock />
           </div>
-
-          <SettingsDock />
-        </div>
         </DragAndDropController>
       </MixerProvider>
     </SyncplayLibraryProvider>

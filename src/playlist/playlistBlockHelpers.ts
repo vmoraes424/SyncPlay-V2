@@ -1,6 +1,8 @@
 import { arrayMove } from '@dnd-kit/sortable';
 import type { Music, SyncPlayData } from '../types';
 
+type PlaylistBlock = SyncPlayData['playlists'][string]['blocks'][string];
+
 export function legacyBool(value: unknown) {
   return value === true || value === 1 || value === '1';
 }
@@ -13,7 +15,7 @@ export function mediaDurationMs(music: Music) {
     : null;
 }
 
-function blockMediaKind(block: SyncPlayData['playlists'][string]['blocks'][string]): 'musics' | 'commercials' {
+function blockMediaKind(block: PlaylistBlock): 'musics' | 'commercials' {
   const commercials = block.commercials;
   if (block.type === 'commercial' || (commercials && Object.keys(commercials).length > 0)) {
     return 'commercials';
@@ -22,14 +24,40 @@ function blockMediaKind(block: SyncPlayData['playlists'][string]['blocks'][strin
 }
 
 /** Músicas ficam em `musics`; comerciais na playlist oficial vêm em `commercials`. */
-export function blockMediaRecord(block: SyncPlayData['playlists'][string]['blocks'][string]): Record<string, Music> {
+export function blockMediaRecord(block: PlaylistBlock): Record<string, Music> {
   return blockMediaKind(block) === 'commercials'
     ? block.commercials ?? {}
     : block.musics ?? {};
 }
 
+function blockOrderKey(kind: 'musics' | 'commercials'): '_localMusicOrder' | '_localCommercialOrder' {
+  return kind === 'commercials' ? '_localCommercialOrder' : '_localMusicOrder';
+}
+
+/**
+ * Retorna as entradas do bloco na ordem correta de exibição.
+ *
+ * Problema: quando as chaves dos itens são strings numéricas ("0","1","2"),
+ * `Object.entries` as ordena numericamente. Depois de inserir uma nova chave UUID
+ * no meio da lista, o JavaScript a joga para o final (chaves não-inteiras ficam após
+ * as inteiras). `_localMusicOrder` / `_localCommercialOrder` guardam a ordem real
+ * após qualquer operação de inserção ou reordenação em memória.
+ */
+export function getOrderedBlockMediaEntries(block: PlaylistBlock): [string, Music][] {
+  const kind = blockMediaKind(block);
+  const record = blockMediaRecord(block);
+  const order = block[blockOrderKey(kind)];
+
+  if (order && order.length > 0) {
+    const tracked = order.filter((k) => k in record);
+    const extra = Object.keys(record).filter((k) => !tracked.includes(k));
+    return [...tracked, ...extra].map((k) => [k, record[k]]);
+  }
+  return Object.entries(record);
+}
+
 function setBlockMediaRecord(
-  block: SyncPlayData['playlists'][string]['blocks'][string],
+  block: PlaylistBlock,
   mediaKind: 'musics' | 'commercials',
   media: Record<string, Music>
 ) {
@@ -39,7 +67,7 @@ function setBlockMediaRecord(
 }
 
 /** Mesma regra que `read_playlist` no Rust: soma durações reais das mídias do mapa ativo (`blockMediaRecord`). */
-function sumBlockDurationRealTotalMs(block: SyncPlayData['playlists'][string]['blocks'][string]): number {
+function sumBlockDurationRealTotalMs(block: PlaylistBlock): number {
   let sum = 0;
   for (const music of Object.values(blockMediaRecord(block))) {
     const ms = mediaDurationMs(music);
@@ -48,9 +76,7 @@ function sumBlockDurationRealTotalMs(block: SyncPlayData['playlists'][string]['b
   return Math.round(sum);
 }
 
-function blockWithSyncedDurationTotal(
-  block: SyncPlayData['playlists'][string]['blocks'][string]
-): SyncPlayData['playlists'][string]['blocks'][string] {
+function blockWithSyncedDurationTotal(block: PlaylistBlock): PlaylistBlock {
   return { ...block, duration_real_total_ms: sumBlockDurationRealTotalMs(block) };
 }
 
@@ -69,7 +95,13 @@ export function removeMusicFromBlock(
   const record = blockMediaRecord(block);
   if (!(musicKey in record)) return null;
   const { [musicKey]: _removed, ...rest } = record;
-  const nextBlock = blockWithSyncedDurationTotal(setBlockMediaRecord(block, mediaKind, rest));
+  const ok = blockOrderKey(mediaKind);
+  const prevOrder = block[ok];
+  const nextOrder = prevOrder ? prevOrder.filter((k) => k !== musicKey) : undefined;
+  const base = setBlockMediaRecord(block, mediaKind, rest);
+  const nextBlock = blockWithSyncedDurationTotal(
+    nextOrder !== undefined ? { ...base, [ok]: nextOrder } : base,
+  );
 
   return {
     ...data,
@@ -95,7 +127,8 @@ export function clearBlockMedia(
   const block = data.playlists[plKey]?.blocks[blockKey];
   if (!block) return null;
   const kind = blockMediaKind(block);
-  const emptied = blockWithSyncedDurationTotal(setBlockMediaRecord(block, kind, {}));
+  const ok = blockOrderKey(kind);
+  const emptied = blockWithSyncedDurationTotal({ ...setBlockMediaRecord(block, kind, {}), [ok]: [] });
   return {
     ...data,
     playlists: {
@@ -134,15 +167,21 @@ export function reorderMusicWithinBlock(
   if (!block) return null;
 
   const kind = blockMediaKind(block);
-  const record = blockMediaRecord(block);
-  const entries = Object.entries(record);
+  // Usa a ordem local se disponível, caso contrário Object.entries (que ordena
+  // numericamente strings inteiras — adequado para dados puros do servidor).
+  const entries = getOrderedBlockMediaEntries(block);
   const oldIndex = entries.findIndex(([k]) => k === activeMusicKey);
   const newIndex = entries.findIndex(([k]) => k === overMusicKey);
   if (oldIndex === -1 || newIndex === -1) return null;
 
   const nextEntries = arrayMove(entries, oldIndex, newIndex);
   const nextRecord = Object.fromEntries(nextEntries);
-  const nextBlock = blockWithSyncedDurationTotal(setBlockMediaRecord(block, kind, nextRecord));
+  const ok = blockOrderKey(kind);
+  const nextOrder = nextEntries.map(([k]) => k);
+  const nextBlock = blockWithSyncedDurationTotal({
+    ...setBlockMediaRecord(block, kind, nextRecord),
+    [ok]: nextOrder,
+  });
 
   return {
     ...data,
@@ -174,14 +213,20 @@ export function insertMusicIntoBlock(
   if (!block) return null;
 
   const kind = blockMediaKind(block);
-  const record = blockMediaRecord(block);
-  if (musicKey in record) return null;
+  if (musicKey in blockMediaRecord(block)) return null;
 
-  const entries = Object.entries(record);
+  // getOrderedBlockMediaEntries respeita a ordem local (_localMusicOrder) se existir,
+  // evitando que chaves numéricas do servidor reordenem o array após Object.fromEntries.
+  const entries = getOrderedBlockMediaEntries(block);
   const idx = Math.max(0, Math.min(insertIndex, entries.length));
   entries.splice(idx, 0, [musicKey, music]);
   const nextRecord = Object.fromEntries(entries);
-  const nextBlock = blockWithSyncedDurationTotal(setBlockMediaRecord(block, kind, nextRecord));
+  const ok = blockOrderKey(kind);
+  const nextOrder = entries.map(([k]) => k);
+  const nextBlock = blockWithSyncedDurationTotal({
+    ...setBlockMediaRecord(block, kind, nextRecord),
+    [ok]: nextOrder,
+  });
 
   return {
     ...data,
