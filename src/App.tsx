@@ -28,6 +28,7 @@ import { enqueuePlaylistCatalogCoverFetch } from './lib/musicCoverApi';
 import type { PlaylistInsertFromClonePayload, PlaylistReorderPayload } from './types/dnd';
 import {
   blockMediaRecord,
+  collectPlaylistMediaPathKeys,
   getBlockDisplayStart,
   getOrderedBlockMediaEntries,
   insertMusicIntoBlock,
@@ -325,6 +326,9 @@ function App() {
     loadNextPlaylistBlock,
     loadAllPlaylistBlocksUntilEnd,
   } = usePlaylistData({ anchorMusicId: playingId ?? scheduledMusicId });
+
+  /** Lookup O(1): arquivo do acervo já existe na playlist (path ou path_storage). */
+  const playlistMediaPathKeys = useMemo(() => collectPlaylistMediaPathKeys(data), [data]);
 
   // Configurações de detecção automática de mix (lidas de configs.json).
   // Armazenadas como campos primitivos separados para estabilidade de referência
@@ -1395,6 +1399,7 @@ function App() {
                 handleCueSeek={handleCueSeek}
                 libraryTab={libraryTab}
                 setLibraryTab={setLibraryTab}
+                playlistMediaPathKeys={playlistMediaPathKeys}
               />
 
               {!isRetrieveMode && (

@@ -75,6 +75,8 @@ export interface LibraryColumnProps {
   onReloadLibrary: () => void;
   libraryTab: LibraryColumnTabId;
   setLibraryTab: Dispatch<SetStateAction<LibraryColumnTabId>>;
+  /** Caminhos normalizados das mídias já na playlist (acervo × ícone de relógio). */
+  playlistMediaPathKeys: ReadonlySet<string>;
 }
 
 export function LibraryColumn({
@@ -123,6 +125,7 @@ export function LibraryColumn({
   onReloadLibrary,
   libraryTab,
   setLibraryTab,
+  playlistMediaPathKeys,
 }: LibraryColumnProps) {
   const [cueDropHover, setCueDropHover] = useState(false);
   const dayLabel = formatPlaylistDayShortPt(playlistDateYmd);
@@ -425,6 +428,7 @@ export function LibraryColumn({
           libraryReloadBusy={libraryReloadBusy}
           libraryReloadError={libraryReloadError}
           onReloadLibrary={onReloadLibrary}
+          playlistMediaPathKeys={playlistMediaPathKeys}
         />
         <LibraryIaTab
           hidden={libraryTab !== 'ia'}

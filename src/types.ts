@@ -15,6 +15,11 @@ export interface DirFile {
   size_bytes: number;
   /** Segundos (backend Symphonia); omitido ou null quando não detectável. */
   duration_sec?: number | null;
+  /**
+   * Tipo derivado de `music_library.json` / `media_library.json` (`playlist_type` + `vem`),
+   * para cores no acervo (music, media, vem, intro, preview, commercial…).
+   */
+  libraryPlaylistItemType?: string;
 }
 
 /** Tempos de marcadores no waveform (SyncPlay), em segundos como string. */

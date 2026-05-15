@@ -6,15 +6,17 @@ export const TYPE_BG: Record<string, string> = {
   commercial: 'linear-gradient(270deg, #1c3684 25%, #161616, #161616)',
   media: 'linear-gradient(270deg, #84581c 25%, #161616, #161616)',
   intro: 'linear-gradient(270deg, #4f729c 25%, #161616, #161616)',
+  preview: 'linear-gradient(270deg, #6b3d8f 25%, #161616, #161616)',
   command: 'linear-gradient(180deg, #9b0000, transparent)',
 };
 
 export const TYPE_ACERVO_BG: Record<string, string> = {
   music: '#007113',
-  vem: '#716c06',
+  vem: '#ae8b08',
   commercial: '#1c3684',
   media: '#84581c',
   intro: '#4f729c',
+  preview: '#6b3d8f',
   command: '#9b0000',
 };
 
@@ -24,6 +26,7 @@ export const TYPE_BORDER: Record<string, string> = {
   commercial: '#2b7fff',
   media: 'rgba(132,88,28,0.55)',
   intro: 'rgba(79,114,156,0.55)',
+  preview: 'rgba(155,107,207,0.55)',
   command: 'rgba(155,0,0,0.55)',
 };
 
@@ -33,5 +36,6 @@ export const TYPE_ACERVO_BORDER: Record<string, string> = {
   commercial: '#2b7fff',
   media: 'rgba(132,88,28,0.55)',
   intro: 'rgba(79,114,156,0.55)',
+  preview: 'rgba(155,107,207,0.55)',
   command: 'rgba(155,0,0,0.55)',
 };

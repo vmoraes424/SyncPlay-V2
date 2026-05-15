@@ -1,4 +1,10 @@
-import type { ExtraData, MixData, WaveformContent } from '../types';
+import type { ExtraData, MediaCategory, MixData, WaveformContent } from '../types';
+
+/** Maps mínimos para resolver tipo visual no acervo (evita dependência circular com o context). */
+export interface LibraryMapsForAcervoStyle {
+  musicLibrary: Record<string, unknown> | null;
+  mediaLibrary: Record<string, unknown> | null;
+}
 
 /** Último segmento do caminho = nome do arquivo, com extensão */
 export function fileBaseKey(fileName: string): string {
@@ -229,7 +235,8 @@ function parseFiniteNumber(v: unknown): number | undefined {
 
 /**
  * Mesma semântica do SyncPlay legado ao montar classe na playlist a partir do cadastro de mídia.
- * `playlist_type === 'tag'` + `vem` → `vem`; `'media'` ou tag sem vem → `media`; `'music'` → `music`.
+ * `playlist_type === 'tag'` + `vem` → `vem`; `'media'` ou tag sem vem → `media`;
+ * `'preview'` / `'bumper'` → `preview`; `'music'` → `music`.
  */
 export function mapPlaylistTypeToMusicItemType(playlistType: unknown, vemRaw: unknown): string {
   const pt = String(playlistType ?? '')
@@ -243,10 +250,46 @@ export function mapPlaylistTypeToMusicItemType(playlistType: unknown, vemRaw: un
   if (pt === 'music') return 'music';
   if (pt === 'commercial') return 'commercial';
   if (pt === 'intro') return 'intro';
-  if (pt === 'preview' || pt === 'bumper') return 'media';
+  if (pt === 'preview' || pt === 'bumper') return 'preview';
   if (pt === 'media') return 'media';
   if (pt === 'tag') return vem ? 'vem' : 'media';
   return 'media';
+}
+
+/**
+ * Cor/tipo no acervo a partir da linha da biblioteca (music_library / media_library),
+ * espelhando `buildMusicFromDrag` / `applyLibraryRowToMusic`.
+ */
+export function resolveAcervoItemStyleKey(
+  mediaCategory: MediaCategory,
+  maps: LibraryMapsForAcervoStyle,
+  file: { path: string; name: string },
+): string | undefined {
+  const rowMusic = findLibraryRowForFile(maps.musicLibrary, file);
+  const rowMedia = findLibraryRowForFile(maps.mediaLibrary, file);
+
+  let resolved: { row: Record<string, unknown>; kind: 'music' | 'media' } | null = null;
+  if (mediaCategory === 'musics') {
+    if (rowMusic) resolved = { row: rowMusic, kind: 'music' };
+    else if (rowMedia) resolved = { row: rowMedia, kind: 'media' };
+  } else if (mediaCategory === 'medias') {
+    if (rowMedia) resolved = { row: rowMedia, kind: 'media' };
+    else if (rowMusic) resolved = { row: rowMusic, kind: 'music' };
+  } else {
+    if (rowMedia) resolved = { row: rowMedia, kind: 'media' };
+    else if (rowMusic) resolved = { row: rowMusic, kind: 'music' };
+  }
+
+  if (!resolved) return undefined;
+
+  const { row, kind } = resolved;
+  const ptRaw = row.playlist_type ?? row.playlistType;
+  if (kind === 'music') {
+    return ptRaw != null && String(ptRaw).trim() !== ''
+      ? mapPlaylistTypeToMusicItemType(ptRaw, row.vem)
+      : 'music';
+  }
+  return mapPlaylistTypeToMusicItemType(ptRaw, row.vem);
 }
 
 /** Duração em segundos a partir da linha da biblioteca (API / JSON sync). */

@@ -5,9 +5,10 @@ import type { DragItemData } from '../types/dnd';
 export function useLibraryItemDrag(file: DirFile, mediaCategory: MediaCategory) {
   const baseName = file.name.replace(/\.[^/.]+$/, '');
   const mediaType =
-    mediaCategory === 'musics' ? 'music' :
+    file.libraryPlaylistItemType ??
+    (mediaCategory === 'musics' ? 'music' :
       mediaCategory === 'medias' ? 'media' :
-        'media';
+        'media');
 
   const data: DragItemData = {
     type: 'MEDIA',

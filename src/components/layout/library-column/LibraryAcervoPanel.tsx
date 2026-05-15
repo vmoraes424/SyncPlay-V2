@@ -5,6 +5,7 @@ import type { Virtualizer } from '@tanstack/react-virtual';
 import { invoke } from '@tauri-apps/api/core';
 import type { DirFile, DirectoryOption, DirectoryOptionKind, MediaCategory } from '../../../types';
 import { hasAnyLibMusicFacet, type LibMusicFiltersState } from '../../../hooks/useSyncplayLibrary';
+import { normalizeMediaPathKey } from '../../../playlist/playlistBlockHelpers';
 import { LibraryMediaListItem } from '../LibraryMediaListItem';
 import { Funnel, X } from 'lucide-react';
 
@@ -42,6 +43,7 @@ export interface LibraryAcervoPanelProps {
   libraryReloadBusy: boolean;
   libraryReloadError: string;
   onReloadLibrary: () => void;
+  playlistMediaPathKeys: ReadonlySet<string>;
 }
 
 export function LibraryAcervoPanel({
@@ -78,6 +80,7 @@ export function LibraryAcervoPanel({
   libraryReloadBusy,
   libraryReloadError,
   onReloadLibrary,
+  playlistMediaPathKeys,
 }: LibraryAcervoPanelProps) {
   const [musicFiltersModalOpen, setMusicFiltersModalOpen] = useState(false);
   const [musicFiltersPopoverRect, setMusicFiltersPopoverRect] = useState<{
@@ -173,7 +176,7 @@ export function LibraryAcervoPanel({
             onChange={(e) => setMediaCategory(e.target.value as MediaCategory)}
           >
             <option value="unset">Selecione o tipo</option>
-            <option value="musics" selected>Músicas</option>
+            <option value="musics">Músicas</option>
             <option value="medias">Mídias</option>
             <option value="others">Comerciais / Outros</option>
           </select>
@@ -470,6 +473,7 @@ export function LibraryAcervoPanel({
                       isSelected={isSelected}
                       isCueing={isCueing}
                       isCuePlaying={isCuePlayingRow}
+                      inPlaylist={playlistMediaPathKeys.has(normalizeMediaPathKey(file.path))}
                       onSelect={() => {
                         setSelectedFile(file.path);
                         if (!isCueing && cuePlaying) {

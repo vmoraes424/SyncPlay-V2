@@ -8,6 +8,7 @@ import {
   findLibraryRowForFile,
   getMusicLibraryCollectionLabels,
   pickStringMap,
+  resolveAcervoItemStyleKey,
   resolveMusicFilterId,
 } from '../library/syncplayLibrary';
 import { getAppSetting } from '../settings/settingsStorage';
@@ -182,7 +183,12 @@ export function useSyncplayLibrary({
       files = files.filter((file) => fileBelongsToLibraryCollection(mdlib, file, collectionIdFromSelect));
     }
 
-    if (mediaCategory !== 'musics') return files;
+    if (mediaCategory !== 'musics') {
+      return files.map((file) => {
+        const libraryPlaylistItemType = resolveAcervoItemStyleKey(mediaCategory, libraryMaps, file);
+        return libraryPlaylistItemType !== undefined ? { ...file, libraryPlaylistItemType } : file;
+      });
+    }
 
     const f = libMusicFilterIds;
     const hasAdv =
@@ -194,7 +200,12 @@ export function useSyncplayLibrary({
       f.yearMax ||
       f.collectionLabel;
 
-    if (!hasAdv || !libraryMaps.musicLibrary) return files;
+    if (!hasAdv || !libraryMaps.musicLibrary) {
+      return files.map((file) => {
+        const libraryPlaylistItemType = resolveAcervoItemStyleKey(mediaCategory, libraryMaps, file);
+        return libraryPlaylistItemType !== undefined ? { ...file, libraryPlaylistItemType } : file;
+      });
+    }
 
     const yMin = f.yearMin ? parseInt(f.yearMin, 10) : NaN;
     const yMax = f.yearMax ? parseInt(f.yearMax, 10) : NaN;
@@ -208,7 +219,7 @@ export function useSyncplayLibrary({
     const rowMetaId = (rowVal: unknown, map: Record<string, string>) =>
       resolveMusicFilterId(map, rowVal, null);
 
-    return files.filter((file) => {
+    const filtered = files.filter((file) => {
       const row = findLibraryRowForFile(libraryMaps.musicLibrary, file);
       if (!row) return false;
 
@@ -242,6 +253,11 @@ export function useSyncplayLibrary({
         if (!labs.some((l) => l.trim().toLowerCase() === want)) return false;
       }
       return true;
+    });
+
+    return filtered.map((file) => {
+      const libraryPlaylistItemType = resolveAcervoItemStyleKey(mediaCategory, libraryMaps, file);
+      return libraryPlaylistItemType !== undefined ? { ...file, libraryPlaylistItemType } : file;
     });
   }, [
     dirFiles,

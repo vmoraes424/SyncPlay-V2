@@ -30,6 +30,42 @@ export function blockMediaRecord(block: PlaylistBlock): Record<string, Music> {
     : block.musics ?? {};
 }
 
+/** Chave estável para comparar caminho do acervo com `path` / `path_storage` da playlist. */
+export function normalizeMediaPathKey(path: string): string {
+  return path.trim().replace(/\\/g, '/').toLowerCase();
+}
+
+function numericStartForPlaylistWalk(value: number | undefined) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : Number.MAX_SAFE_INTEGER;
+}
+
+/**
+ * Conjunto de caminhos presentes em qualquer bloco da playlist (mesma ordem de varredura que a UI).
+ * Recalcular só quando `data` mudar; lookup por arquivo do acervo em O(1).
+ */
+export function collectPlaylistMediaPathKeys(data: SyncPlayData | null): ReadonlySet<string> {
+  const set = new Set<string>();
+  if (!data?.playlists) return set;
+
+  const playlists = Object.entries(data.playlists).sort(
+    ([, a], [, b]) => numericStartForPlaylistWalk(a.start) - numericStartForPlaylistWalk(b.start),
+  );
+
+  for (const [, pl] of playlists) {
+    const blocks = Object.entries(pl.blocks).sort(
+      ([, a], [, b]) => numericStartForPlaylistWalk(a.start) - numericStartForPlaylistWalk(b.start),
+    );
+    for (const [, block] of blocks) {
+      for (const music of Object.values(blockMediaRecord(block))) {
+        const p = music.path?.trim() || music.path_storage?.trim() || '';
+        if (p) set.add(normalizeMediaPathKey(p));
+      }
+    }
+  }
+
+  return set;
+}
+
 function blockOrderKey(kind: 'musics' | 'commercials'): '_localMusicOrder' | '_localCommercialOrder' {
   return kind === 'commercials' ? '_localCommercialOrder' : '_localMusicOrder';
 }
