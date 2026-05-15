@@ -6,6 +6,8 @@ export type PlaylistItemType = 'MEDIA' | 'COMMAND' | 'BLOCK';
 export interface DragItemMetadata {
   title?: string;
   path?: string;
+  /** Nome do arquivo com extensão (acervo / biblioteca). */
+  fileName?: string;
   /** Tipo SyncPlay da mídia (ex.: music, media, vem). */
   mediaType?: string;
   commandId?: string;

@@ -243,6 +243,45 @@ export function insertMusicIntoBlock(
   };
 }
 
+/** Atualiza só `music.cover` (ex.: capa assíncrona da API catálogo). */
+export function patchMusicCoverInBlock(
+  data: SyncPlayData,
+  plKey: string,
+  blockKey: string,
+  musicKey: string,
+  coverUrl: string | null,
+): SyncPlayData | null {
+  const block = data.playlists[plKey]?.blocks[blockKey];
+  if (!block) return null;
+
+  const kind = blockMediaKind(block);
+  const record = blockMediaRecord(block);
+  const music = record[musicKey];
+  if (!music) return null;
+
+  const nextMusic: Music = { ...music };
+  const trimmed = coverUrl?.trim();
+  if (trimmed) nextMusic.cover = trimmed;
+  else delete nextMusic.cover;
+
+  const nextRecord = { ...record, [musicKey]: nextMusic };
+  const nextBlock = blockWithSyncedDurationTotal(setBlockMediaRecord(block, kind, nextRecord));
+
+  return {
+    ...data,
+    playlists: {
+      ...data.playlists,
+      [plKey]: {
+        ...data.playlists[plKey],
+        blocks: {
+          ...data.playlists[plKey].blocks,
+          [blockKey]: nextBlock,
+        },
+      },
+    },
+  };
+}
+
 /** Data do arquivo agregado (prefixo `AAAA-MM-DD-` quando vem de dia extra carregado). */
 export function isoDateHintFromPlaylistKey(plKey: string, fallbackIso: string) {
   return /^(\d{4}-\d{2}-\d{2})-/.exec(plKey)?.[1] ?? fallbackIso;

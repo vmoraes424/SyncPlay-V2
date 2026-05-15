@@ -19,6 +19,7 @@ enum RelationKind {
     Style,
     Rhythm,
     Nationality,
+    Artist,
 }
 
 struct FilterHarvest {
@@ -26,6 +27,7 @@ struct FilterHarvest {
     styles: BTreeMap<String, String>,
     rhythms: BTreeMap<String, String>,
     nationalities: BTreeMap<String, String>,
+    artists: BTreeMap<String, String>,
     collections: BTreeMap<String, String>,
     medias_type: BTreeMap<String, String>,
     tag_bumper: BTreeMap<String, String>,
@@ -38,6 +40,7 @@ impl FilterHarvest {
             styles: BTreeMap::new(),
             rhythms: BTreeMap::new(),
             nationalities: BTreeMap::new(),
+            artists: BTreeMap::new(),
             collections: BTreeMap::new(),
             medias_type: BTreeMap::new(),
             tag_bumper: BTreeMap::new(),
@@ -56,6 +59,7 @@ impl FilterHarvest {
             RelationKind::Style => &mut self.styles,
             RelationKind::Rhythm => &mut self.rhythms,
             RelationKind::Nationality => &mut self.nationalities,
+            RelationKind::Artist => &mut self.artists,
         };
         slot.entry(id_s).or_insert(label_own);
     }
@@ -110,6 +114,32 @@ impl FilterHarvest {
             &["nationality_label", "country", "pais"],
         ) {
             self.insert_relation(RelationKind::Nationality, id_s, lbl.unwrap_or_default());
+        }
+
+        self.ingest_relation_obj(RelationKind::Artist, obj_map(item.get("artist")));
+        self.ingest_relation_obj(RelationKind::Artist, obj_map(item.get("artista")));
+        self.ingest_relation_obj(RelationKind::Artist, obj_map(item.get("interpreter")));
+        self.ingest_relation_obj(RelationKind::Artist, obj_map(item.get("interprete")));
+
+        if let (Some(id_s), lbl) = pairing_from_scalar_id(
+            item,
+            "id_artist",
+            &["artist_name", "artist_label", "nome_artista"],
+        ) {
+            self.insert_relation(RelationKind::Artist, id_s, lbl.unwrap_or_default());
+        }
+
+        // Ex.: `"artist": 58127` + `"artist_name": "Foo"` (sem objeto aninhado)
+        if let Some(aname) = nonempty_hint(item.get("artist_name"))
+            .or_else(|| nonempty_hint(item.get("nome_artista")))
+            .or_else(|| nonempty_hint(item.get("artist_label")))
+        {
+            if let Some(id_s) = stringify_val_opt(item.get("artist").or_else(|| item.get("artista")))
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+            {
+                self.insert_relation(RelationKind::Artist, id_s, aname);
+            }
         }
 
         ingest_collection_array(&mut self.collections, item.get("collections"));
@@ -610,6 +640,7 @@ fn music_filters_json(h: &FilterHarvest) -> Value {
     let styles = btree_to_json_map(&h.styles);
     let rhythms = btree_to_json_map(&h.rhythms);
     let nationalities = btree_to_json_map(&h.nationalities);
+    let artists = btree_to_json_map(&h.artists);
     let collections = btree_to_json_map(&h.collections);
 
     json!({
@@ -624,6 +655,8 @@ fn music_filters_json(h: &FilterHarvest) -> Value {
         "nationalities": nationalities.clone(),
         "nationality": nationalities,
         "paises": nationalities,
+        "artists": artists.clone(),
+        "artist": artists,
         "collections": collections.clone(),
         "collection": collections,
         "colecoes": collections,

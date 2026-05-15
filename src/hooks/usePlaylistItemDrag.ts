@@ -16,6 +16,8 @@ export function useLibraryItemDrag(file: DirFile, mediaCategory: MediaCategory) 
     metadata: {
       title: baseName,
       path: file.path,
+      /** Nome com extensão — mesma chave típica de `music_library.json` / `media_library.json`. */
+      fileName: file.name,
       mediaType,
     },
   };

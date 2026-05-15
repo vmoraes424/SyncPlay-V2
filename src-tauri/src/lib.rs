@@ -149,6 +149,7 @@ pub fn run() {
             commands::weather::fetch_weather_current,
             commands::library_sync::update_syncplay_library,
             commands::library_media_resolve::resolve_media_track_path,
+            commands::music_cover::fetch_syncplay_music_cover,
             commands::api_config::read_superaudio_api_config,
             commands::superaudio_prompts::superaudio_prompts_proxy,
             commands::playlist_watch::watch_playlist_file,

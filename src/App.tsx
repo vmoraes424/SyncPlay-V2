@@ -21,7 +21,8 @@ import { SyncplayLibraryProvider } from './library/SyncplayLibraryContext';
 import { useAutoMixDetection, parseAutoMixSettings } from './hooks/useAutoMixDetection';
 import { useColumnResize } from './hooks/useColumnResize';
 import { MixerProvider } from './hooks/useMixer';
-import { buildMusicFromDrag } from './lib/buildMusicFromDrag';
+import { buildMusicFromDrag, type BuildMusicFromDragContext } from './lib/buildMusicFromDrag';
+import { enqueuePlaylistCatalogCoverFetch } from './lib/musicCoverApi';
 import type { PlaylistInsertFromClonePayload, PlaylistReorderPayload } from './types/dnd';
 import {
   blockMediaRecord,
@@ -523,8 +524,22 @@ function App() {
     });
   }, [setData]);
 
+  const directoryLabel = useMemo(
+    () => directoryOptions.find((o) => o.value === directoryValue)?.label,
+    [directoryOptions, directoryValue],
+  );
+
   const handlePlaylistInsertFromClone = useCallback(
     (payload: PlaylistInsertFromClonePayload) => {
+      const enrichCtx: BuildMusicFromDragContext = {
+        mediaCategory,
+        libraryMaps,
+        directoryLabel,
+        directoryKind,
+      };
+      const musicKey = crypto.randomUUID();
+      const music = buildMusicFromDrag(payload.drag, enrichCtx);
+
       setData((prev) => {
         if (!prev) return prev;
         const block = prev.playlists[payload.plKey]?.blocks[payload.blockKey];
@@ -546,16 +561,34 @@ function App() {
           }
         }
 
-        const musicKey = crypto.randomUUID();
-        const music = buildMusicFromDrag(payload.drag, mediaCategory);
-
         return (
           insertMusicIntoBlock(prev, payload.plKey, payload.blockKey, insertIndex, musicKey, music) ??
           prev
         );
       });
+
+      const sn = syncPlaySnForApi?.trim();
+      if (sn) {
+        enqueuePlaylistCatalogCoverFetch({
+          setData,
+          syncPlaySn: sn,
+          bearerToken: superaudioApiConfig.token,
+          plKey: payload.plKey,
+          blockKey: payload.blockKey,
+          musicKey,
+          music,
+        });
+      }
     },
-    [mediaCategory, setData],
+    [
+      directoryKind,
+      directoryLabel,
+      libraryMaps,
+      mediaCategory,
+      setData,
+      superaudioApiConfig.token,
+      syncPlaySnForApi,
+    ],
   );
 
   const handleReloadLibraryFromApi = useCallback(async () => {

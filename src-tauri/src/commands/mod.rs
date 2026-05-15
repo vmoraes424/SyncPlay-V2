@@ -9,3 +9,4 @@ pub mod library_sync;
 pub mod library_media_resolve;
 pub mod api_config;
 pub mod superaudio_prompts;
+pub mod music_cover;
