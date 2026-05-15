@@ -1,14 +1,14 @@
-import type { Music, MediaCategory } from '../types';
-import type { LibMusicFiltersState } from '../hooks/useSyncplayLibrary';
+import type { Music, MediaCategory } from '../../types';
+import type { LibMusicFiltersState } from '../../hooks/useSyncplayLibrary';
 
-import { formatTimeRemaining } from '../time';
+import { formatTimeRemaining } from '../../time';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import proximaBcoImg from '../assets/proxima_bco.png';
-import lixeiraImg from '../assets/lixeira.png';
-import refraoPlayGif from '../assets/refraoPlay.gif';
-import playRPiscanteGif from '../assets/playRPiscante.gif';
+import proximaBcoImg from '../../assets/proxima_bco.png';
+import lixeiraImg from '../../assets/lixeira.png';
+import refraoPlayGif from '../../assets/refraoPlay.gif';
+import playRPiscanteGif from '../../assets/playRPiscante.gif';
 import { invoke } from '@tauri-apps/api/core';
-import { useSyncplayLibraryMaps } from '../library/SyncplayLibraryContext';
+import { useSyncplayLibraryMaps } from '../../library/SyncplayLibraryContext';
 import {
   fileBaseKey,
   getMediaAcervoLabels,
@@ -17,34 +17,16 @@ import {
   resolveFilterLabel,
   resolveMusicFilterId,
   stripHtmlToText,
-} from '../library/syncplayLibrary';
-import { CollectionIcon } from '../assets/CollectionIcon';
-import { FiltersIcon } from '../assets/FiltersIcon';
-import { ArtistIcon } from '../assets/ArtistIcon';
-import { VarinhaMagicaIcon } from '../assets/VarinhaMagica';
-import { ReloadMusicIcon } from '../assets/ReloadMusicIcon';
-import { getPlaylistItemFallbackCover } from '../lib/playlistItemCover';
-import { INTRO_CHORUS_CHANNEL_ID } from '../hooks/useMixer';
-
-// ─── Gradientes e bordas por tipo de mídia ────────────────────────────────────
-
-const TYPE_BG: Record<string, string> = {
-  music: 'linear-gradient(270deg, #007113 25%, #161616, #161616)',
-  vem: 'linear-gradient(270deg, #716c06 25%, #161616, #161616)',
-  commercial: 'linear-gradient(270deg, #1c3684 25%, #161616, #161616)',
-  media: 'linear-gradient(270deg, #84581c 25%, #161616, #161616)',
-  intro: 'linear-gradient(270deg, #4f729c 25%, #161616, #161616)',
-  command: 'linear-gradient(180deg, #9b0000, transparent)',
-};
-
-const TYPE_BORDER: Record<string, string> = {
-  music: 'rgba(0,113,19,0.55)',
-  vem: 'rgba(113,108,6,0.55)',
-  commercial: '#2b7fff',
-  media: 'rgba(132,88,28,0.55)',
-  intro: 'rgba(79,114,156,0.55)',
-  command: 'rgba(155,0,0,0.55)',
-};
+} from '../../library/syncplayLibrary';
+import { CollectionIcon } from '../../assets/CollectionIcon';
+import { FiltersIcon } from '../../assets/FiltersIcon';
+import { ArtistIcon } from '../../assets/ArtistIcon';
+import { VarinhaMagicaIcon } from '../../assets/VarinhaMagica';
+import { ReloadMusicIcon } from '../../assets/ReloadMusicIcon';
+import { getPlaylistItemFallbackCover } from '../../lib/playlistItemCover';
+import { INTRO_CHORUS_CHANNEL_ID } from '../../hooks/useMixer';
+import { MarqueeText } from '../MarqueeText';
+import { TYPE_BG, TYPE_BORDER } from '../../lib/mediaTypeItemStyles';
 
 const BAR_TRACK = 'rgba(148, 163, 184, 0.24)';
 const BAR_PLAYED = 'rgba(148, 163, 184, 0.62)';
@@ -118,6 +100,16 @@ function parseWaveformSec(raw: string | undefined): number | null {
   const n = parseFloat(String(raw).replace(',', '.'));
   return Number.isFinite(n) && n >= 0 ? n : null;
 }
+
+function pctFromTime(sec: number | null, displayDuration: number): number | null {
+  if (sec == null || displayDuration <= 0) return null;
+  const p = (sec / displayDuration) * 100;
+  if (!Number.isFinite(p)) return null;
+  return Math.min(100, Math.max(0, p));
+}
+
+/** Meia-largura do traço da intro na barra (% da largura total), para ~1px em telas comuns. */
+const INTRO_MARKER_HALF_PCT = 0.12;
 
 /** Início do refrão em ms quando `chorus_init` e `chorus_end` existem no waveform. */
 export function getChorusSeekMs(music: Music): number | null {
@@ -358,14 +350,55 @@ export function PlaylistMusicItem({
     mixEndPct = (mixTriggerSec / displayDuration) * 100;
   }
 
-  let barBg: string;
+  let barBgBase: string;
   if (mixEndPct === null) {
-    barBg = `linear-gradient(to right, ${BAR_PLAYED} ${prog}%, ${BAR_TRACK} ${prog}%)`;
+    barBgBase = `linear-gradient(to right, ${BAR_PLAYED} ${prog}%, ${BAR_TRACK} ${prog}%)`;
   } else if (prog < mixEndPct) {
-    barBg = `linear-gradient(to right, ${BAR_PLAYED} ${prog}%, ${BAR_TRACK} ${prog}%, ${BAR_TRACK} ${mixEndPct}%, ${BAR_MIX} ${mixEndPct}%)`;
+    barBgBase = `linear-gradient(to right, ${BAR_PLAYED} ${prog}%, ${BAR_TRACK} ${prog}%, ${BAR_TRACK} ${mixEndPct}%, ${BAR_MIX} ${mixEndPct}%)`;
   } else {
-    barBg = `linear-gradient(to right, ${BAR_PLAYED} ${prog}%, ${BAR_MIX} ${prog}%)`;
+    barBgBase = `linear-gradient(to right, ${BAR_PLAYED} ${prog}%, ${BAR_MIX} ${prog}%)`;
   }
+
+  const wContent = music.extra?.mix?.waveform_content;
+  const introMarkerPct = pctFromTime(
+    wContent ? parseWaveformSec(wContent.intro) : null,
+    displayDuration
+  );
+  let chorusStartPct: number | null = null;
+  let chorusEndPct: number | null = null;
+  if (wContent && displayDuration > 0) {
+    const c0 = parseWaveformSec(wContent.chorus_init);
+    const c1 = parseWaveformSec(wContent.chorus_end);
+    if (c0 != null && c1 != null && c1 > c0) {
+      chorusStartPct = pctFromTime(c0, displayDuration);
+      chorusEndPct = pctFromTime(c1, displayDuration);
+      if (
+        chorusStartPct == null ||
+        chorusEndPct == null ||
+        chorusEndPct <= chorusStartPct
+      ) {
+        chorusStartPct = null;
+        chorusEndPct = null;
+      }
+    }
+  }
+
+  const CHORUS_OVERLAY = 'rgba(37, 23, 65, 0.5)';
+  const barOverlays: string[] = [];
+  if (introMarkerPct != null) {
+    const left = Math.max(0, introMarkerPct - INTRO_MARKER_HALF_PCT);
+    const right = Math.min(100, introMarkerPct + INTRO_MARKER_HALF_PCT);
+    barOverlays.push(
+      `linear-gradient(to right, transparent 0%, transparent ${left}%, #52a8f5 ${introMarkerPct}%, transparent ${right}%, transparent 100%)`
+    );
+  }
+  if (chorusStartPct != null && chorusEndPct != null) {
+    barOverlays.push(
+      `linear-gradient(to right, transparent 0%, transparent ${chorusStartPct}%, ${CHORUS_OVERLAY} ${chorusStartPct}%, ${CHORUS_OVERLAY} ${chorusEndPct}%, transparent ${chorusEndPct}%, transparent 100%)`
+    );
+  }
+  const barBg =
+    barOverlays.length > 0 ? `${barOverlays.join(', ')}, ${barBgBase}` : barBgBase;
 
   const remainingSec = Math.max(0, displayDuration - itemCurrentTime);
   const mixResult = getMixDurationSec(music, displayDuration, overrideMixEndMs);
@@ -389,7 +422,7 @@ export function PlaylistMusicItem({
       `  override   : mix_end_ms=${overrideMixEndMs} → ${overrideSec?.toFixed(2) ?? 'n/a'}s\n` +
       `  exibindo   : ${mixSec?.toFixed(2) ?? 'n/a'}s  (isOverride=${mixIsOverride})`
     );
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [overrideMixEndMs, itemUniqueId]);
 
   const fileLabel =
@@ -523,9 +556,9 @@ export function PlaylistMusicItem({
           onChorusSeekTo != null
             ? Promise.resolve(onChorusSeekTo(chorusSeekMs))
             : invoke('seek_with_fade', {
-                positionMs: chorusSeekMs,
-                mixerBus: INTRO_CHORUS_CHANNEL_ID,
-              });
+              positionMs: chorusSeekMs,
+              mixerBus: INTRO_CHORUS_CHANNEL_ID,
+            });
         void p.catch((e) => {
           console.error(e);
           if (refrainFlashTimerRef.current != null) {
@@ -642,24 +675,21 @@ export function PlaylistMusicItem({
               <>
                 <div className="flex flex-row items-center gap-1">
                   <ArtistIcon />
-                  <span
-                    data-filter-chip
-                    className={`filterArtist text-xs font-bold text-white leading-snug truncate underline cursor-pointer hover:text-sky-200 ${artistChipActive ? 'filter-active rounded px-1' : ''}`}
-                    title={artist}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      emitFilter({ kind: 'artist', artist, itemUniqueId });
-                    }}
-                  >
-                    {artist}
-                  </span>
-                  <VarinhaMagicaIcon />
+                    <span
+                      data-filter-chip
+                      className={`filterArtist text-xs font-bold text-white leading-snug truncate underline cursor-pointer hover:text-sky-200 ${artistChipActive ? 'filter-active rounded px-1' : ''}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        emitFilter({ kind: 'artist', artist, itemUniqueId });
+                      }}
+                    >
+                      {artist}
+                    </span>
+                  <VarinhaMagicaIcon className='shrink-0' />
                 </div>
                 <div className="flex flex-row items-center gap-1">
                   <ReloadMusicIcon />
-                  <span className="text-xs font-bold text-white leading-snug truncate" title={track}>
-                    {track}
-                  </span>
+                  <MarqueeText text={track} className='text-xs font-bold text-white leading-snug truncate' />
                 </div>
               </>
             ) : (

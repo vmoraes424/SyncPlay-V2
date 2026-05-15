@@ -13,6 +13,8 @@ export interface DirFile {
   name: string;
   path: string;
   size_bytes: number;
+  /** Segundos (backend Symphonia); omitido ou null quando não detectável. */
+  duration_sec?: number | null;
 }
 
 /** Tempos de marcadores no waveform (SyncPlay), em segundos como string. */

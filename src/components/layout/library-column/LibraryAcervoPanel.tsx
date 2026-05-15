@@ -173,7 +173,7 @@ export function LibraryAcervoPanel({
             onChange={(e) => setMediaCategory(e.target.value as MediaCategory)}
           >
             <option value="unset">Selecione o tipo</option>
-            <option value="musics">Músicas</option>
+            <option value="musics" selected>Músicas</option>
             <option value="medias">Mídias</option>
             <option value="others">Comerciais / Outros</option>
           </select>

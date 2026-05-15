@@ -17,7 +17,7 @@ import { SortablePlaylistRow } from '../dnd/SortablePlaylistRow';
 import vuMasterMuted from '../../assets/vus/master-off.png';
 import vuMaster from '../../assets/vus/master.png';
 import { BlockHeader } from '../BlockHeader';
-import { PlaylistMusicItem, getChorusSeekMs, getIntroSeekMs, type PlaylistFilterClickPayload, type PlaylistFilterVisibility } from '../PlaylistMusicItem';
+import { PlaylistMusicItem, getChorusSeekMs, getIntroSeekMs, type PlaylistFilterClickPayload, type PlaylistFilterVisibility } from '../playlist/PlaylistMusicItem';
 import { MusicInfo } from '../playlist/MusicInfo';
 import { PlaylistCurrentBlock } from '../playlist/PlaylistCurrentBlock';
 import { PlaylistLoadMoreControls } from '../playlist/PlaylistLoadMoreControls';

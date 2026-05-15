@@ -14,7 +14,7 @@ import { LibraryColumn } from './components/layout/LibraryColumn';
 import type { LibraryColumnTabId } from './components/layout/library-column/types';
 import { MixerColumn } from './components/layout/MixerColumn';
 import { PlaylistColumn } from './components/layout/PlaylistColumn';
-import type { PlaylistFilterClickPayload } from './components/PlaylistMusicItem';
+import type { PlaylistFilterClickPayload } from './components/playlist/PlaylistMusicItem';
 import { SECONDS_PER_DAY, usePlaylistData } from './hooks/usePlaylistData';
 import { useSyncplayLibrary } from './hooks/useSyncplayLibrary';
 import { formatSecondsOfDay } from './time';
@@ -494,7 +494,7 @@ function App() {
   } = useColumnResize();
 
   // Coluna Direita (Selects & Files)
-  const [mediaCategory, setMediaCategory] = useState<MediaCategory>('unset');
+  const [mediaCategory, setMediaCategory] = useState<MediaCategory>('musics');
   const [directoryOptions, setDirectoryOptions] = useState<DirectoryOption[]>([]);
   const [directoryValue, setDirectoryValue] = useState<string>('');
   const [directoryKind, setDirectoryKind] = useState<DirectoryOptionKind>('sync');
@@ -659,7 +659,7 @@ function App() {
   const rowVirtualizer = useVirtualizer({
     count: filteredFiles.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 36,
+    estimateSize: () => 44,
     overscan: 10,
   });
 

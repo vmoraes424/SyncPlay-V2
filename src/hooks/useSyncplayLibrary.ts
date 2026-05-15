@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 
-import type { PlaylistFilterClickPayload, PlaylistFilterVisibility } from '../components/PlaylistMusicItem';
+import type { PlaylistFilterClickPayload, PlaylistFilterVisibility } from '../components/playlist/PlaylistMusicItem';
 import type { SyncplayLibraryMaps } from '../library/SyncplayLibraryContext';
 import {
   fileBelongsToLibraryCollection,
