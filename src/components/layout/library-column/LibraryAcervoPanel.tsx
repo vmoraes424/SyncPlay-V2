@@ -378,12 +378,12 @@ export function LibraryAcervoPanel({
                   ))}
                 </select>
               </div>
-              <div className="flex gap-2 items-center justify-between w-full flex-row">
+              <div className="flex flex-wrap gap-2 items-center justify-between w-full flex-row">
                 <input
                   type="text"
                   inputMode="numeric"
                   placeholder={libraryYearDecade ? 'Ano min (década)' : 'Ano min'}
-                  className="flex-1 bg-white/5 border border-[#353535] rounded-lg px-2 py-1.5 text-white/90 text-[0.72rem] outline-none focus:border-neutral-500"
+                  className="min-w-[120px] flex-1 bg-white/5 border border-[#353535] rounded-lg px-2 py-1.5 text-white/90 text-[0.72rem] outline-none focus:border-neutral-500"
                   value={libMusicFilterIds.yearMin}
                   onChange={(e) =>
                     setLibMusicFilterIds((prev) => ({ ...prev, yearMin: e.target.value }))
@@ -393,7 +393,7 @@ export function LibraryAcervoPanel({
                   type="text"
                   inputMode="numeric"
                   placeholder={libraryYearDecade ? 'Ano máx' : 'Ano máx'}
-                  className="flex-1 bg-white/5 border border-[#353535] rounded-lg px-2 py-1.5 text-white/90 text-[0.72rem] outline-none focus:border-neutral-500"
+                  className="min-w-[120px] flex-1 bg-white/5 border border-[#353535] rounded-lg px-2 py-1.5 text-white/90 text-[0.72rem] outline-none focus:border-neutral-500"
                   value={libMusicFilterIds.yearMax}
                   onChange={(e) =>
                     setLibMusicFilterIds((prev) => ({ ...prev, yearMax: e.target.value }))

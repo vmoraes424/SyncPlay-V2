@@ -52,9 +52,19 @@ function isDragItemData(d: unknown): d is DragItemData {
 
 const BOTONEIRA_ZONE = 'BOTONEIRA' as const;
 
-/** Evita `closestCenter` favorecer sempre o fim da lista em colunas roláveis. */
+/**
+ * Reordenação interna pode usar fallback (áreas entre itens).
+ * Para inserções vindas do acervo/comandos, só considerar o que o ponteiro
+ * realmente cobre — senão `closestCorners` marca uma linha da playlist mesmo com
+ * o cursor na barra lateral, no topo da coluna, etc.
+ */
 const playlistCollisionDetection: CollisionDetection = (args) => {
   const hits = pointerWithin(args);
+  const raw = args.active.data.current;
+  const isExternalPlaylistInsert =
+    isDragItemData(raw) &&
+    (raw.sourceZone === 'ACERVO' || raw.sourceZone === 'COMANDOS');
+  if (isExternalPlaylistInsert) return hits;
   if (hits.length > 0) return hits;
   return closestCorners(args);
 };
