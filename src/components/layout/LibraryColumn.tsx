@@ -73,6 +73,8 @@ export interface LibraryColumnProps {
   libraryReloadBusy: boolean;
   libraryReloadError: string;
   onReloadLibrary: () => void;
+  libraryTab: LibraryColumnTabId;
+  setLibraryTab: Dispatch<SetStateAction<LibraryColumnTabId>>;
 }
 
 export function LibraryColumn({
@@ -119,8 +121,9 @@ export function LibraryColumn({
   libraryReloadBusy,
   libraryReloadError,
   onReloadLibrary,
+  libraryTab,
+  setLibraryTab,
 }: LibraryColumnProps) {
-  const [libraryTab, setLibraryTab] = useState<LibraryColumnTabId>('acervo');
   const [cueDropHover, setCueDropHover] = useState(false);
   const dayLabel = formatPlaylistDayShortPt(playlistDateYmd);
   const [now, setNow] = useState(() => new Date());

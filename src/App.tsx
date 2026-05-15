@@ -11,8 +11,10 @@ import type {
 import { TitleBar } from './components/TitleBar';
 import { SettingsDock } from './components/settings/SettingsDock';
 import { LibraryColumn } from './components/layout/LibraryColumn';
+import type { LibraryColumnTabId } from './components/layout/library-column/types';
 import { MixerColumn } from './components/layout/MixerColumn';
 import { PlaylistColumn } from './components/layout/PlaylistColumn';
+import type { PlaylistFilterClickPayload } from './components/PlaylistMusicItem';
 import { SECONDS_PER_DAY, usePlaylistData } from './hooks/usePlaylistData';
 import { useSyncplayLibrary } from './hooks/useSyncplayLibrary';
 import { formatSecondsOfDay } from './time';
@@ -505,6 +507,7 @@ function App() {
   const [libraryReloadError, setLibraryReloadError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [libraryTab, setLibraryTab] = useState<LibraryColumnTabId>('acervo');
 
   const {
     libraryMaps,
@@ -517,7 +520,7 @@ function App() {
     showNameMusicFiles,
     showNameCommercialFiles,
     showNameMediaFiles,
-    applyPlaylistFilterClick,
+    applyPlaylistFilterClick: applyPlaylistFilterFromLibrary,
     musicCategoryMap,
     musicStyleMap,
     musicRhythmMap,
@@ -533,6 +536,14 @@ function App() {
     setDirectoryValue,
     setSearchQuery,
   });
+
+  const applyPlaylistFilterClick = useCallback(
+    (p: PlaylistFilterClickPayload) => {
+      setLibraryTab('acervo');
+      applyPlaylistFilterFromLibrary(p);
+    },
+    [applyPlaylistFilterFromLibrary],
+  );
 
   const handlePlaylistReorder = useCallback((p: PlaylistReorderPayload) => {
     setData((prev) => {
@@ -1382,6 +1393,8 @@ function App() {
                 toggleCuePlaybackToolbar={toggleCuePlaybackToolbar}
                 stopCuePlayer={stopCuePlayer}
                 handleCueSeek={handleCueSeek}
+                libraryTab={libraryTab}
+                setLibraryTab={setLibraryTab}
               />
 
               {!isRetrieveMode && (
