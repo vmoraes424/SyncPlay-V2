@@ -186,6 +186,7 @@ fn local_seconds_of_day() -> SecondsOfDay {
 pub fn get_schedule_selection(
     blocks: Vec<ScheduledBlockDto>,
     anchor_media_id: Option<String>,
+    apply_schedule_discards: bool,
 ) -> AppResult<ScheduleSelectionDto> {
     let scheduled_blocks: Vec<ScheduledBlock> = blocks.into_iter().map(Into::into).collect();
     let now_sec = local_seconds_of_day();
@@ -195,6 +196,7 @@ pub fn get_schedule_selection(
         120.0,
         "advanced",
         anchor_media_id.as_deref(),
+        apply_schedule_discards,
     );
 
     Ok(selection.into())

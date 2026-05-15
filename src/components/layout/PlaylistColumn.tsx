@@ -23,6 +23,7 @@ import { PlaylistCurrentBlock } from '../playlist/PlaylistCurrentBlock';
 import { PlaylistLoadMoreControls } from '../playlist/PlaylistLoadMoreControls';
 import { PlaylistPlaybackBar } from '../playlist/PlaylistPlaybackBar';
 import type { Music, MediaCategory, PlayableItem, ScheduleMediaStartDto, SyncPlayData } from '../../types';
+import type { OperationMode } from '../../lib/operationMode';
 import type { LibMusicFiltersState } from '../../hooks/useSyncplayLibrary';
 import { useMixer, INTRO_CHORUS_CHANNEL_ID } from '../../hooks/useMixer';
 import type { DroppablePlaylistBlockData } from '../../types/dnd';
@@ -118,7 +119,9 @@ export interface PlaylistColumnProps {
   playlistAppendError: string;
   loadNextPlaylistBlock: () => void | Promise<void>;
   loadAllPlaylistBlocksUntilEnd: () => void | Promise<void>;
-  scrollToPlaylistMusic: (musicId: string) => void;
+  scrollToPlaylistMusic: (musicId: string, options?: { scrollBehavior?: ScrollBehavior }) => void;
+  operationMode: OperationMode;
+  onToggleOperationMode: () => void | Promise<void>;
 }
 
 export function PlaylistColumn({
@@ -167,6 +170,8 @@ export function PlaylistColumn({
   loadNextPlaylistBlock,
   loadAllPlaylistBlocksUntilEnd,
   scrollToPlaylistMusic,
+  operationMode,
+  onToggleOperationMode,
 }: PlaylistColumnProps) {
   const { getBusConfig, getVuLevel, setBusGain, setBusMuted } = useMixer();
 
@@ -343,8 +348,14 @@ export function PlaylistColumn({
             </DraggableCommandIcon>
             <img src={cadeado} alt="" className="size-5 pointer-events-none" draggable={false} />
             <img src={antena} alt="" className="size-5 pointer-events-none" draggable={false} />
-            <DraggableCommandIcon commandId="cmd-operacao-local" label="Operação local">
-              <svg id="operacaoLocal" fill="#19a69e" xmlns="http://www.w3.org/2000/svg" width="35" height="30"
+            <DraggableCommandIcon
+              commandId="cmd-operacao-local"
+              label="Operação local"
+              onClickActivate={() => {
+                void onToggleOperationMode();
+              }}
+            >
+              <svg id="operacaoLocal" fill={operationMode === 'Rede' ? '#19a69e' : '#6b7280'} xmlns="http://www.w3.org/2000/svg" width="35" height="30"
                 viewBox="0 0 512 326" className="pointer-events-none">
                 <path id="auto_copy" data-name="auto copy" className="cls-1"
                   d="M20,0H492a20,20,0,0,1,20,20V305a20,20,0,0,1-20,20H20A20,20,0,0,1,0,305V20A20,20,0,0,1,20,0ZM158.234,234.194L123.575,89.71H93.682L59.889,234.194H88.483l5.2-24.261h28.81l5.415,24.261h30.327Zm-60.22-46.573c4.116-20.145,8.232-40.291,9.531-60.653,0.65,6.282,1.517,12.781,2.383,19.062,2.166,14.081,5.2,27.728,8.232,41.591H98.014ZM256.572,89.71H227.979v97.261c0,10.831.433,23.612-14.08,23.612-14.73,0-14.3-14.08-14.3-24.911V89.71H171.008V199.535c0,25.561,18.846,37.042,42.457,37.042,14.3,0,30.544-3.9,38.342-17.113,4.332-7.365,4.765-13.864,4.765-22.095V89.71Zm86.641,26.427V89.71H270v26.427h22.312V234.194H320.9V116.137h22.312ZM454.767,162.06c0-18.2-1.95-39.208-13-54.371-8.665-11.914-22.745-20.145-37.692-20.145-14.73,0-29.243,8.015-37.691,20.145-11.048,15.6-13,35.742-13,54.371,0,18.2,1.95,38.991,13,54.155,8.664,11.914,22.744,20.362,37.691,20.362s29.244-8.448,37.692-20.362C452.817,200.618,454.767,180.689,454.767,162.06Zm-30.327-.65c0,13.214-1.516,47.656-20.362,47.656s-20.362-34.442-20.362-47.656,1.516-47.656,20.362-47.656S424.44,148.2,424.44,161.41Z" />

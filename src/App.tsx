@@ -39,6 +39,11 @@ import {
   mergeSuperaudioApiConfig,
   type SuperaudioApiConfig,
 } from './api/apiConfig';
+import {
+  type OperationMode,
+  isNetworkOperationMode,
+  parseOperationMode,
+} from './lib/operationMode';
 
 async function fetchConfigSafe<T>(filename: string): Promise<T | null> {
   try {
@@ -47,6 +52,15 @@ async function fetchConfigSafe<T>(filename: string): Promise<T | null> {
   } catch {
     return null;
   }
+}
+
+async function mergeConfigsJson(patch: Record<string, unknown>): Promise<void> {
+  const current = (await fetchConfigSafe<Record<string, unknown>>('Configs/configs.json')) ?? {};
+  const next = { ...current, ...patch };
+  await invoke('write_config', {
+    filename: 'Configs/configs.json',
+    content: JSON.stringify(next, null, 2),
+  });
 }
 
 
@@ -318,6 +332,7 @@ function App() {
   const [musicMixSensitivity, setMusicMixSensitivity] = useState(25);
   const [mediaMixSensitivity, setMediaMixSensitivity] = useState(20);
   const [mixTypeAdvanced, setMixTypeAdvanced] = useState(false);
+  const [operationMode, setOperationMode] = useState<OperationMode>('Rede');
 
   useEffect(() => {
     fetchConfigSafe<Record<string, unknown>>('Configs/configs.json').then((cfg) => {
@@ -328,6 +343,7 @@ function App() {
         setMusicMixSensitivity(parsed.musicMixSensitivity);
         setMediaMixSensitivity(parsed.mediaMixSensitivity);
         setMixTypeAdvanced(parsed.mixType === 'advanced');
+        setOperationMode(parseOperationMode(cfg.operationMode));
       }
     });
   }, []);
@@ -375,6 +391,10 @@ function App() {
   const lastPlaybackDiscardAnchorRef = useRef<string | null>(null);
   /** Chave de `collectActivePlaybackIds` no último tick; null = ainda não amostrado. */
   const prevActivePlaybackKeyRef = useRef<string | null>(null);
+  /** `current_id` da engine no tick anterior (detecta faixa nova após “buraco” sem áudio ativo). */
+  const prevPlaybackMainIdRef = useRef<string | null>(null);
+  /** Invalida tentativas de scroll anteriores quando uma nova é pedida (evita 2× smooth sobrepostos). */
+  const playlistFollowScrollGenerationRef = useRef(0);
   const playlistItemRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const autoMixScannedIdsRef = useRef<Set<string>>(new Set());
   const [autoMixScanItems, setAutoMixScanItems] = useState<PlayableItem[]>([]);
@@ -894,12 +914,32 @@ function App() {
     catch (err) { console.error(err); }
   };
 
-  const scrollToPlaylistMusic = useCallback((musicId: string) => {
-    window.requestAnimationFrame(() => {
-      const element = playlistItemRefs.current[musicId];
-      if (!element) return;
+  const scrollToPlaylistMusic = useCallback((
+    musicId: string,
+    scrollOptions?: { scrollBehavior?: ScrollBehavior },
+  ) => {
+    const scrollBehavior = scrollOptions?.scrollBehavior ?? "smooth";
+    const generation = ++playlistFollowScrollGenerationRef.current;
 
-      const playlistScroll = element.closest("[data-playlist-scroll]");
+    let frameAttempts = 0;
+    /** ~2 s a 60 fps — suficiente para o DOM após expansão/carregar bloco. */
+    const maxFrames = 120;
+
+    const tryScroll = () => {
+      if (generation !== playlistFollowScrollGenerationRef.current) return;
+
+      const element = playlistItemRefs.current[musicId];
+      if (!element) {
+        frameAttempts++;
+        if (frameAttempts < maxFrames) {
+          window.requestAnimationFrame(tryScroll);
+        }
+        return;
+      }
+
+      const playlistScroll =
+        element.closest("[data-playlist-scroll]") ??
+        document.querySelector<HTMLElement>("[data-playlist-scroll]");
       if (playlistScroll instanceof HTMLElement) {
         const rootRect = playlistScroll.getBoundingClientRect();
         const elRect = element.getBoundingClientRect();
@@ -908,17 +948,20 @@ function App() {
           playlistScroll.scrollTop + (elRect.top - rootRect.top) - gutter;
         playlistScroll.scrollTo({
           top: Math.max(0, nextTop),
-          behavior: "smooth",
+          behavior: scrollBehavior,
         });
       } else {
-        element.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        element.scrollIntoView({ behavior: scrollBehavior, block: "nearest" });
       }
 
       element.classList.add("playlist-scroll-highlight");
       window.setTimeout(() => {
+        if (generation !== playlistFollowScrollGenerationRef.current) return;
         element.classList.remove("playlist-scroll-highlight");
       }, 1800);
-    });
+    };
+
+    window.requestAnimationFrame(tryScroll);
   }, []);
 
   const clearScheduleTimer = useCallback(() => {
@@ -934,11 +977,16 @@ function App() {
     options: {
       isCancelled?: () => boolean;
       syncPlayback?: boolean;
+      /** Se definido, ignora `operationMode` por um ciclo (ex.: logo após alternar o modo). */
+      applyScheduleDiscards?: boolean;
     } = {}
   ) => {
     if (!data) return null;
 
     clearScheduleTimer();
+
+    const applyScheduleDiscards =
+      options.applyScheduleDiscards ?? isNetworkOperationMode(operationMode);
 
     const { playableItems, scheduledBlocks } = buildPlaylistRuntimeItems(data, mixConfig);
     const currentDayScheduledBlocks = scheduledBlocksForPlaybackWindow(
@@ -962,6 +1010,7 @@ function App() {
       const selection = await invoke<ScheduleSelectionDto>("get_schedule_selection", {
         blocks: currentDayScheduledBlocks,
         anchorMediaId: anchorMusicId,
+        applyScheduleDiscards,
       });
       if (options.isCancelled?.()) return null;
 
@@ -1027,7 +1076,22 @@ function App() {
     playlistBaseDate,
     scrollToPlaylistMusic,
     setData,
+    operationMode,
   ]);
+
+  const toggleOperationMode = useCallback(async () => {
+    const next: OperationMode = operationMode === 'Rede' ? 'Local' : 'Rede';
+    setOperationMode(next);
+    try {
+      await mergeConfigsJson({ operationMode: next });
+    } catch (e) {
+      console.error(e);
+    }
+    void recalculatePlaylistDiscards('operation-mode', discardAnchorRef.current, {
+      applyScheduleDiscards: isNetworkOperationMode(next),
+      syncPlayback: false,
+    });
+  }, [operationMode, recalculatePlaylistDiscards]);
 
   const togglePlay = async (uniqueId: string) => {
     try {
@@ -1058,19 +1122,43 @@ function App() {
         const activeIds = collectActivePlaybackIds(state.current_id, state.background_ids);
         const nextKey = activePlaybackKey(activeIds);
         const prevKey = prevActivePlaybackKeyRef.current;
+        let autoplayScrollTarget: string | null = null;
         if (prevKey !== null) {
           const prevIds = new Set(prevKey.split('|').filter(Boolean));
           const removed = [...prevIds].filter((id) => !activeIds.has(id));
           if (removed.length > 0 && activeIds.size > 0) {
             const cur = state.current_id as string | null | undefined;
-            const target =
+            autoplayScrollTarget =
               cur && activeIds.has(cur)
                 ? cur
                 : [...activeIds][0];
-            scrollToPlaylistMusic(target);
           }
         }
         prevActivePlaybackKeyRef.current = nextKey;
+
+        const mainId =
+          typeof state.current_id === 'string' && state.current_id
+            ? state.current_id
+            : null;
+        const bgList = Array.isArray(state.background_ids)
+          ? (state.background_ids as string[])
+          : [];
+        const hasBackgroundPlayback = bgList.some((id: string) => Boolean(id?.trim()));
+
+        // Enquanto houver algo em fade (background), não siga o só `current_id`:
+        // o scroll/UX espera igual à detecção por `removed`.
+        // Buraco sem foreground + sem background ou troca já “seca”: `removed` já cobriu ou
+        // aplicamos só quando não há fades pendentes.
+        if (mainId && prevPlaybackMainIdRef.current !== mainId) {
+          if (!hasBackgroundPlayback) {
+            autoplayScrollTarget = mainId;
+          }
+        }
+        prevPlaybackMainIdRef.current = mainId;
+
+        if (autoplayScrollTarget) {
+          scrollToPlaylistMusic(autoplayScrollTarget, { scrollBehavior: "smooth" });
+        }
 
         if (state.current_id) {
           setPlayingId(state.current_id);
@@ -1153,6 +1241,11 @@ function App() {
       return;
     }
 
+    /** Não puxar âncora/grade até terminar mix em background — evita “pular bloco” cedo demais */
+    if (backgroundIds.length > 0) {
+      return;
+    }
+
     if (
       playingId === scheduledMusicId ||
       playingId === lastPlaybackDiscardAnchorRef.current
@@ -1165,7 +1258,12 @@ function App() {
     void recalculatePlaylistDiscards("playback-change", playingId, {
       syncPlayback: false,
     });
-  }, [playingId, recalculatePlaylistDiscards, scheduledMusicId]);
+  }, [
+    playingId,
+    backgroundIds.length,
+    recalculatePlaylistDiscards,
+    scheduledMusicId,
+  ]);
 
   return (
     <SyncplayLibraryProvider value={libraryMaps}>
@@ -1230,6 +1328,8 @@ function App() {
                 loadNextPlaylistBlock={loadNextPlaylistBlock}
                 loadAllPlaylistBlocksUntilEnd={loadAllPlaylistBlocksUntilEnd}
                 scrollToPlaylistMusic={scrollToPlaylistMusic}
+                operationMode={operationMode}
+                onToggleOperationMode={toggleOperationMode}
               />
 
               <div

@@ -152,23 +152,33 @@ pub fn counts_for_schedule(media: &ScheduledMedia) -> bool {
 }
 
 pub fn can_auto_discard(media: &ScheduledMedia) -> bool {
-    media.media_type.eq_ignore_ascii_case("music")
-        && !media.disabled
-        && !media.discarded
-        && !media.manual_discard
-        && !media.fixed
-        && !media.manual_type
-        && !media.disable_discard
+    if media.media_type.eq_ignore_ascii_case("command") {
+        return false;
+    }
+    if media.disabled
+        || media.discarded
+        || media.manual_discard
+        || media.disable_discard
+    {
+        return false;
+    }
+    if media.media_type.eq_ignore_ascii_case("music") {
+        return !media.fixed && !media.manual_type;
+    }
+    true
 }
 
 fn can_auto_restore(media: &ScheduledMedia) -> bool {
-    media.media_type.eq_ignore_ascii_case("music")
-        && !media.disabled
-        && media.discarded
-        && !media.manual_discard
-        && !media.fixed
-        && !media.manual_type
-        && !media.disable_discard
+    if media.media_type.eq_ignore_ascii_case("command") {
+        return false;
+    }
+    if media.disabled || media.manual_discard || media.disable_discard || !media.discarded {
+        return false;
+    }
+    if media.media_type.eq_ignore_ascii_case("music") {
+        return !media.fixed && !media.manual_type;
+    }
+    true
 }
 
 pub fn effective_duration(media: &ScheduledMedia) -> f64 {
@@ -203,10 +213,11 @@ fn discard_previous_vem_or_hc_if_needed(
 
     while cursor > lower_bound && remaining > 0 {
         cursor -= 1;
-        if is_vem_or_hc(&block.medias[cursor])
-            && !block.medias[cursor].disabled
-            && !block.medias[cursor].manual_discard
-        {
+        let m = &block.medias[cursor];
+        if m.media_type.eq_ignore_ascii_case("command") {
+            continue;
+        }
+        if is_vem_or_hc(m) && !m.disabled && !m.manual_discard {
             block.medias[cursor].discarded = true;
             remaining -= 1;
         } else {
@@ -225,10 +236,11 @@ fn restore_previous_vem_or_hc_if_needed(
 
     while cursor > lower_bound && remaining > 0 {
         cursor -= 1;
-        if is_vem_or_hc(&block.medias[cursor])
-            && !block.medias[cursor].disabled
-            && !block.medias[cursor].manual_discard
-        {
+        let m = &block.medias[cursor];
+        if m.media_type.eq_ignore_ascii_case("command") {
+            continue;
+        }
+        if is_vem_or_hc(m) && !m.disabled && !m.manual_discard {
             block.medias[cursor].discarded = false;
             remaining -= 1;
         } else {
@@ -378,7 +390,14 @@ pub fn select_music_from_blocks(
     music_discard_time_sec: f64,
     discard_type: &str,
 ) -> BlockScheduleSelection {
-    recalculate_schedule_from_blocks(blocks, now_sec, music_discard_time_sec, discard_type, None)
+    recalculate_schedule_from_blocks(
+        blocks,
+        now_sec,
+        music_discard_time_sec,
+        discard_type,
+        None,
+        true,
+    )
         .selection
 }
 
@@ -388,6 +407,7 @@ pub fn recalculate_schedule_from_blocks(
     music_discard_time_sec: f64,
     discard_type: &str,
     anchor_media_id: Option<&str>,
+    apply_block_discards: bool,
 ) -> RecalculatedBlockSchedule {
     let mut runtime_items = Vec::new();
     let mut media_discards = Vec::new();
@@ -403,13 +423,19 @@ pub fn recalculate_schedule_from_blocks(
         let block_anchor_id = block_has_anchor.then_some(anchor_media_id).flatten();
         let block_anchor_start = block_has_anchor.then_some(now_sec);
 
-        recalculate_block_discards(
-            &mut block,
-            music_discard_time_sec,
-            discard_type,
-            block_anchor_id,
-            block_anchor_start,
-        );
+        if apply_block_discards {
+            recalculate_block_discards(
+                &mut block,
+                music_discard_time_sec,
+                discard_type,
+                block_anchor_id,
+                block_anchor_start,
+            );
+        } else if !block.disable_discard {
+            // Modo local: não aplica descarte pela grade; restaura apenas descartes automáticos
+            // (mantém manual_discard / disable_discard conforme o JSON).
+            restore_auto_discards(&mut block);
+        }
         media_discards.extend(block.medias.iter().map(|media| ScheduleMediaDiscard {
             id: media.id.clone(),
             discarded: media.discarded,
@@ -892,7 +918,7 @@ mod tests {
             ],
         )];
 
-        let schedule = recalculate_schedule_from_blocks(&blocks, 1_150, 0.0, "advanced", None);
+        let schedule = recalculate_schedule_from_blocks(&blocks, 1_150, 0.0, "advanced", None, true);
 
         assert_eq!(
             schedule.media_discards,
@@ -919,7 +945,7 @@ mod tests {
         tail.discarded = true;
         let blocks = vec![block(1_000, 300.0, vec![block_media("a", 100.0), tail])];
 
-        let schedule = recalculate_schedule_from_blocks(&blocks, 1_150, 0.0, "advanced", None);
+        let schedule = recalculate_schedule_from_blocks(&blocks, 1_150, 0.0, "advanced", None, true);
 
         assert_eq!(
             schedule.media_discards,
@@ -948,7 +974,7 @@ mod tests {
             ],
         )];
 
-        let schedule = recalculate_schedule_from_blocks(&blocks, 1_120, 0.0, "advanced", Some("b"));
+        let schedule = recalculate_schedule_from_blocks(&blocks, 1_120, 0.0, "advanced", Some("b"), true);
 
         assert_eq!(
             schedule.selection,

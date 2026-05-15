@@ -8,6 +8,11 @@ export interface DraggableCommandIconProps {
   /** Classes extras no wrapper (ex.: margem, tamanho). */
   className?: string;
   metadata?: Record<string, unknown>;
+  /**
+   * Clique sem iniciar arraste — bloqueia o pointer no filho para o sensor do dnd-kit.
+   * Útil enquanto o arrasto ainda não é necessário neste ícone.
+   */
+  onClickActivate?: () => void;
 }
 
 /**
@@ -20,21 +25,41 @@ export function DraggableCommandIcon({
   children,
   className = '',
   metadata,
+  onClickActivate,
 }: DraggableCommandIconProps) {
   const { attributes, listeners, setNodeRef, isDragging } = useCommandIconDrag(commandId, label, metadata);
+  const dragTitle = `Arrastar: ${label}`;
+  const title = onClickActivate ? `${label} — clique para alternar modo` : dragTitle;
+
   return (
     <div
       ref={setNodeRef}
       className={[
-        'flex cursor-grab touch-none items-center justify-center active:cursor-grabbing',
+        'flex touch-none items-center justify-center',
+        onClickActivate ? '' : 'cursor-grab active:cursor-grabbing',
         isDragging ? 'opacity-40' : '',
         className,
       ].join(' ')}
-      title={`Arrastar: ${label}`}
+      title={title}
       {...attributes}
-      {...listeners}
+      {...(onClickActivate ? {} : listeners)}
     >
-      {children}
+      {onClickActivate ? (
+        <button
+          type="button"
+          className="flex cursor-pointer items-center justify-center border-0 bg-transparent p-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#19a69e]"
+          aria-label={label}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            onClickActivate();
+          }}
+        >
+          {children}
+        </button>
+      ) : (
+        children
+      )}
     </div>
   );
 }
