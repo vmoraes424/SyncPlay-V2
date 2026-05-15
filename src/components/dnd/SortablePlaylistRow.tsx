@@ -67,7 +67,6 @@ export function SortablePlaylistRow({
       {...attributes}
       {...listeners}
     >
-      <div className="w-2 shrink-0 self-stretch rounded-sm hover:bg-white/6" aria-hidden />
       <div className="min-w-0 min-h-0 flex-1">{children}</div>
     </div>
   );

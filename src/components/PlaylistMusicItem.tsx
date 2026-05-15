@@ -318,7 +318,7 @@ export function PlaylistMusicItem({
   const itemBorderColor = TYPE_BORDER[music.type ?? ''];
 
   const itemClass = [
-    'playlist-music-item flex flex-col rounded-md transition-all duration-75 border mx-2 px-3 py-2',
+    'playlist-music-item flex flex-col rounded-md transition-all duration-75 border px-3 py-2',
     trashHighlighted ? 'playlist-music-item--trash-selected' : '',
     isDisabled ? 'playlist-music-item--disabled-extra' : '',
     isDisabled
